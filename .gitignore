@@ -1,0 +1,34 @@
+# --- Private / Claude Code working files (never commit) ---
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+reference/
+docs/WORKLOG.md
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# --- Node / web ---
+node_modules/
+dist/
+*.log
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
