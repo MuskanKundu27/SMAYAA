@@ -14,13 +14,17 @@ Project initialised. **No application code yet.** The sections below will be fil
 
 ## 3. Repository layout
 
+Repository: https://github.com/MuskanKundu27/SMAYAA (default branch `main`)
+
 ```
-CLAUDE.md               Product brief and rules (source of truth)
+README.md               Short project intro
+.gitignore              Ignored files (secrets, build artefacts, private working files)
+.gitattributes          Line endings forced to LF (needed for scripts run in Docker)
 docs/
-  WORKLOG.md            Progress log and current state
   DEVELOPER_GUIDE.md    This file
-reference/              Original demo, design prototype, KPI engineering note (read-only inputs)
 ```
+
+Some files exist only on the project owner's machine and are deliberately **not** in Git: the internal product brief, internal work log and reference designs. Do not commit them; they are listed in `.gitignore`.
 
 ## 4. Prerequisites
 
