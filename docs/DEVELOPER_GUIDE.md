@@ -1,12 +1,12 @@
 # SMAYAA.ai – Developer Guide
 
-For developers joining the project. This guide describes **only what exists in the code today**. Plans live in `CLAUDE.md` (product brief) and `docs/WORKLOG.md` (progress log).
+For developers joining the project. This guide describes **only what exists in the code today**.
 
 _Last updated: 2026-10-19_
 
 ## 1. What SMAYAA.ai is
 
-A multi-tenant SaaS platform for cooling-tower water intelligence. Companies (tenants) own plants; plant staff enter water-chemistry, thermal and filter readings; the platform checks them against limits, raises alerts with treatments, computes KPIs and shows predicted problems. Parameters, formulas, limits, rules and module screens are configuration stored in the database, not code. See `CLAUDE.md` for the full product brief.
+A multi-tenant SaaS platform for cooling-tower water intelligence. Companies (tenants) own plants; plant staff enter water-chemistry, thermal and filter readings; the platform checks them against limits, raises alerts with treatments, computes KPIs and shows predicted problems. Parameters, formulas, limits, rules and module screens are configuration stored in the database, not code.
 
 ## 2. Status
 
