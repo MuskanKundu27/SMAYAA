@@ -21,6 +21,7 @@ jobs:
       PGPASSWORD: postgres
       ENVIRONMENT: test
       TEST_DATABASE_URL: postgresql+psycopg://smayaa_app:app_ci_pw@localhost:5432/smayaa_test
+      TEST_MIGRATION_DATABASE_URL: postgresql+psycopg://smayaa_owner:owner_ci_pw@localhost:5432/smayaa_test
       MIGRATION_DATABASE_URL: postgresql+psycopg://smayaa_owner:owner_ci_pw@localhost:5432/smayaa_test
       JWT_SECRET: ci-only-secret-that-is-at-least-32-characters-long
     defaults:
@@ -43,8 +44,11 @@ jobs:
         run: mypy app tests migrations
       - name: Create database roles
         run: psql -h localhost -U postgres -v owner_pw=owner_ci_pw -v app_pw=app_ci_pw -f scripts/create_dev_db.sql
-      - name: Migrate
-        run: alembic upgrade head
+      - name: Migrate (up, down, up – proves migrations are reversible)
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
       - name: Test
         run: pytest
 

@@ -5,7 +5,7 @@ from app.core.config import get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestIdMiddleware
-from app.routers import health
+from app.routers import auth, companies, health, plants, users
 
 API_PREFIX = "/api/v1"
 
@@ -33,7 +33,8 @@ def create_app() -> FastAPI:
     register_error_handlers(app)
 
     v1 = APIRouter(prefix=API_PREFIX)
-    v1.include_router(health.router)
+    for module in (health, auth, companies, plants, users):
+        v1.include_router(module.router)
     app.include_router(v1)
     return app
 

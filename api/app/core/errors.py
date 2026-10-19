@@ -43,6 +43,25 @@ class ConflictError(AppError):
     code = "conflict"
 
 
+class UnauthorizedError(AppError):
+    """Not logged in, bad credentials, or the token/user is no longer valid."""
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "unauthorized"
+
+
+class ValidationFailedError(AppError):
+    """Business validation (beyond request shape), e.g. a weak password."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    code = "validation_error"
+
+
+class TooManyRequestsError(AppError):
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    code = "too_many_requests"
+
+
 def error_response(
     status_code: int,
     code: str,
@@ -57,7 +76,8 @@ def error_response(
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(_: Request, exc: AppError) -> JSONResponse:
-        return error_response(exc.status_code, exc.code, exc.message, exc.details)
+        headers = {"WWW-Authenticate": "Bearer"} if isinstance(exc, UnauthorizedError) else None
+        return error_response(exc.status_code, exc.code, exc.message, exc.details, headers)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -66,7 +86,7 @@ def register_error_handlers(app: FastAPI) -> None:
             for err in exc.errors()
         ]
         return error_response(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "validation_error", "Invalid request", details
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "validation_error", "Invalid request", details
         )
 
     @app.exception_handler(StarletteHTTPException)

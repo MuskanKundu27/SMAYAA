@@ -32,6 +32,17 @@ class Settings(BaseSettings):
     cors_origins: Annotated[list[str], NoDecode] = []
     log_level: str = "INFO"
 
+    # Auth
+    access_token_minutes: int = 15
+    refresh_token_days: int = 7
+    login_max_failures: int = 5  # consecutive wrong passwords before the account locks
+    login_lockout_minutes: int = 15
+    login_rate_limit_per_minute: int = 20  # login attempts per client IP
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == Environment.PRODUCTION
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_origins(cls, value: object) -> object:

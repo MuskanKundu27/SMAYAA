@@ -161,6 +161,73 @@ This step has no visible features. It builds the "workshop" that every later fea
 
 ---
 
+## Entry 7 – Step 1: who are you, and what may you see? (2026-10-19)
+
+This step answers three questions for every request: **who is this?** (authentication), **what may they do?** (permissions) and **which data may they touch?** (tenant isolation).
+
+### 7.1 Passwords are never stored, only "fingerprints"
+**What:** We store an **argon2id hash** of each password, never the password itself.
+**Why:** A hash is a one-way fingerprint: you can check that a password matches it, but you cannot turn it back into the password. If the database ever leaks, attackers still don't get passwords. Argon2 is deliberately slow and memory-hungry, so guessing millions of passwords is impractically expensive.
+**Learn:** Never invent your own password storage. Use a well-known library (here `argon2-cffi`).
+
+### 7.2 Two tokens: a short-lived pass and a long-lived renewal card
+**What:** Logging in gives you:
+- an **access token** (a JWT, valid 15 minutes), sent with every request in the `Authorization` header;
+- a **refresh token** (valid 7 days), kept in an **httpOnly cookie** that JavaScript cannot read. It is only used to get a new access token.
+
+**Why:** If an access token is stolen, it stops working within 15 minutes. The refresh token is harder to steal (JavaScript can't read the cookie) and is **replaced every time it is used**. If someone uses an *old* refresh token again, we know it was copied, and we cancel the whole chain.
+**Learn:** Short-lived credentials limit the damage when something leaks.
+
+### 7.3 Stopping password guessing
+**What:**
+- After **5 wrong passwords in a row**, the account locks for 15 minutes.
+- Each computer (IP address) may try to log in **20 times per minute**.
+- A wrong password and an unknown username get **exactly the same message**, and take the same time to answer.
+
+**Why:** Attackers try common passwords on many accounts. Locking and rate limits slow them down. Identical answers stop them from discovering which usernames exist.
+
+### 7.4 Deactivated means locked out *now*
+**What:** On every request we look the user up in the database again. If they (or their company) have been deactivated, the request is refused, even if their token hasn't expired yet.
+**Why:** When a manager removes an operator, the operator must lose access immediately, not in 15 minutes.
+
+### 7.5 Roles are bundles of permissions
+**What:** The code never asks "is this a manager?". It asks "does this person have the `limits.write` permission?". Roles (super admin, company admin, manager, operator) are rows in the database, each linked to a list of permission strings.
+**Why:** Customers will ask for things like "a supervisor who can edit limits but not create users". With permission strings, that's a new database row, not new code.
+**Learn:** Check *capabilities*, not *job titles*.
+
+### 7.6 The rank rule
+**What:** You can only create or deactivate people **below** you: super admin → company admins; company admin → managers and operators; manager → operators in their own plant; operator → nobody. Each role has a number ("rank") to compare.
+**Why:** It stops anyone from making themselves (or a friend) more powerful than they are.
+
+### 7.7 Keeping companies apart: two locks on the same door
+**What:**
+1. **In the code:** every query is filtered to the user's company and plants. If you ask for something outside your scope, the answer is "not found" (404), not "forbidden" (403), so you can't even learn that it exists.
+2. **In the database (row-level security):** at the start of every database transaction, the API tells PostgreSQL "this request belongs to company X, plants Y". PostgreSQL itself then hides every row from other companies. Even a hand-written SQL query with a forged company id returns nothing.
+
+**Why:** One forgotten filter in the code would otherwise leak a customer's data to another customer. With the database also enforcing the rule, both would have to fail at the same time.
+**Proof:** Our tests run raw SQL as the API's database user and check that company A's session sees zero rows of company B, and that inserting a row for company B is rejected by PostgreSQL.
+**Learn:** For the most important rules, add a second, independent layer of protection.
+
+### 7.8 "Fail closed"
+**What:** A database session that hasn't been told which company it belongs to sees **nothing**.
+**Why:** If a developer forgets to set the company, the bug shows up as "empty page" during testing instead of as "every customer's data" in production.
+
+### 7.9 Delete means deactivate, and everything is recorded
+**What:** Users, plants and companies are never deleted, only switched off. Every create/change/deactivate writes an **audit log** entry: who, what, when, before and after.
+**Why:** Old readings must still show who entered them. And when a customer asks "who changed this?", we can answer.
+
+### 7.10 Tests that prove the rules
+**What:** 65 automatic tests, covering:
+- login, lockout and token theft detection;
+- what each role may and may not do;
+- the rank rule;
+- the "plant has no manager" warning;
+- company isolation, both through the API and directly in SQL.
+
+**Real lesson from today:** one test failed. The limiter code was right, but the *test* was flawed: it assumed time passes between two lines of code, which isn't true on a fast computer. The fix was to give the limiter a **replaceable clock**, so the test controls time exactly. Tests that depend on real time are "flaky"; make time an input instead.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -187,4 +254,17 @@ This step has no visible features. It builds the "workshop" that every later fea
 | **pre-commit hook** | A check Git runs automatically before accepting a commit. |
 | **Proxy** | A server that forwards requests to another server. |
 | **CORS** | Browser rule that limits which websites may call an API from JavaScript. |
+| **Authentication** | Proving who you are (e.g. username + password). |
+| **Authorization** | Deciding what an authenticated person may do. |
+| **Hash (password hash)** | A one-way fingerprint of a password; can be checked but not reversed. |
+| **JWT** | JSON Web Token: a signed piece of text saying "this is user X, valid until Y". |
+| **Access / refresh token** | Short-lived pass for each request / longer-lived card used only to get a new pass. |
+| **httpOnly cookie** | A cookie the browser sends automatically but JavaScript cannot read. |
+| **Rate limiting** | Allowing only a certain number of attempts per time window. |
+| **Permission** | A named capability, e.g. `plants.manage`. Roles are bundles of permissions. |
+| **Principal** | The logged-in user of the current request, with their scope and permissions. |
+| **Scope** | The part of the data a user may touch (their company, their plants). |
+| **Audit log** | Permanent record of who changed what and when. |
+| **Fail closed** | When something is missing or broken, deny access rather than allow it. |
+| **Flaky test** | A test that sometimes passes and sometimes fails without code changes. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |

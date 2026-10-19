@@ -5,6 +5,7 @@ from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
+from app.db import tenant  # noqa: F401  (registers the RLS settings listener on Session)
 
 
 @lru_cache
@@ -20,7 +21,8 @@ def get_sessionmaker() -> sessionmaker[Session]:
 def get_db() -> Iterator[Session]:
     """FastAPI dependency: one session per request, closed afterwards.
 
-    Tenant scoping (RLS session settings) is layered on top of this in step 1.
+    The session starts with no tenant context (sees nothing under RLS). get_principal sets
+    the context once the user is known; see app/db/tenant.py.
     """
     with get_sessionmaker()() as session:
         yield session

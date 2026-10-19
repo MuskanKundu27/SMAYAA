@@ -5,6 +5,7 @@ from alembic import context
 from dotenv import dotenv_values
 from sqlalchemy import create_engine, pool
 
+import app.models  # noqa: F401  (registers every model on Base.metadata)
 from app.core.config import REPO_ROOT
 from app.db.base import Base
 
