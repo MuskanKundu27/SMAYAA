@@ -1,0 +1,45 @@
+# Optional: run the whole stack in Docker (db + api + web). Local development currently runs
+# natively instead (see docs/DEVELOPER_GUIDE.md). Not yet tested locally; CI builds the images.
+#
+#   docker compose up --build      → web on http://localhost:8080, API docs on /api/v1/docs
+#
+# Development-only passwords below. Production uses real secrets from the hosting platform.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres
+      SMAYAA_OWNER_PW: owner_dev_pw
+      SMAYAA_APP_PW: app_dev_pw
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./api/scripts:/scripts:ro
+      - ./api/scripts/docker-init-db.sh:/docker-entrypoint-initdb.d/init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: ./api
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql+psycopg://smayaa_app:app_dev_pw@db:5432/smayaa
+      MIGRATION_DATABASE_URL: postgresql+psycopg://smayaa_owner:owner_dev_pw@db:5432/smayaa
+      JWT_SECRET: docker-dev-only-secret-at-least-32-characters
+      CORS_ORIGINS: http://localhost:8080
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  db-data:

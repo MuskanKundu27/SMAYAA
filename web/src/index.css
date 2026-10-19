@@ -1,0 +1,19 @@
+/* Temporary base styles. The real palette and layout will follow the original SMAYAA demo. */
+:root {
+  --navy: #0b1f3a;
+  --blue: #1f6feb;
+  --bg: #f4f6fa;
+  --card: #ffffff;
+  --text: #1c2533;
+  --muted: #5b6678;
+  --good: #1a7f37;
+  --bad: #cf222e;
+
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+}

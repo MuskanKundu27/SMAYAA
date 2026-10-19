@@ -1,0 +1,30 @@
+# Install once: api/.venv/Scripts/pre-commit install   (Windows)
+# Runs automatically on every `git commit`.
+repos:
+  - repo: local
+    hooks:
+      - id: block-private-files
+        name: Block private / secret files
+        language: fail
+        entry: "Private file must not be committed (see .gitignore):"
+        files: '^(CLAUDE\.md|CLAUDE\.local\.md|docs/WORKLOG\.md|reference/|\.claude/|\.env($|\.(?!example$)))'
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1  # keep equal to the ruff pin in api/pyproject.toml
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^api/
+      - id: ruff-format
+        files: ^api/

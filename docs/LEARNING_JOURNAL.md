@@ -103,6 +103,64 @@ We never overwrite readings. Each save becomes a new, time-stamped record, and "
 
 ---
 
+## Entry 6 – Step 0: building the foundation (2026-10-19)
+
+This step has no visible features. It builds the "workshop" that every later feature will use. Skipping it is the most common reason projects become messy.
+
+### 6.1 Two database users instead of one
+**What:** We created two PostgreSQL logins: `smayaa_owner` (owns the tables, used only to change the table structure) and `smayaa_app` (used by the running API; can only read and write rows).
+**Why:** PostgreSQL's row-level security (the rule "company A cannot see company B's rows") is **ignored for the table owner**. If the API logged in as the owner, that protection would silently do nothing. Separate users also mean a bug in the API can't drop a table.
+**Learn:** Give each part of a system only the permissions it needs ("least privilege").
+
+### 6.2 Settings come from the environment
+**What:** `api/app/core/config.py` reads settings (database address, secret key, ...) from environment variables or a `.env` file. `.env.example` shows which settings exist, with fake values.
+**Why:** The same code runs on a laptop, in testing and in production with different settings, and secrets never appear in the code. The program refuses to start if a required setting is missing or the secret is too short, so mistakes are caught at once.
+**Learn:** Commit `.env.example`, never `.env`.
+
+### 6.3 A health endpoint
+**What:** `GET /api/v1/health` answers `{"status":"ok","database":"ok"}`.
+**Why:** Servers in the cloud are watched by "load balancers" and monitoring tools. They call this address every few seconds; if it fails, they stop sending users to that server and alert us.
+**Learn:** Every web service should be able to say "I'm alive and can reach my database".
+
+### 6.4 Request IDs and structured logs
+**What:** Every request gets a random ID. It is written on every log line and sent back in the `X-Request-ID` header. Logs are JSON, one line per request.
+**Why:** When a customer says "I got an error at 14:32", we can find that exact request in thousands of log lines. JSON logs can be searched and filtered by tools; plain text is much harder.
+**Learn:** Logs are for searching later, so make them structured. Never log passwords or tokens.
+
+### 6.5 One error format
+**What:** Every error from the API looks like `{"error": {"code": "not_found", "message": "...", "details": []}}`.
+**Why:** The frontend needs one piece of code to show errors, not a different one per endpoint. Unexpected crashes return a polite message, while the technical details go only to our logs (showing them to users can leak information to attackers).
+
+### 6.6 Database migrations (Alembic)
+**What:** Alembic keeps numbered scripts (`api/migrations/versions/`) that change the database structure step by step. `alembic upgrade head` applies any missing ones. We started with an empty "baseline".
+**Why:** Every developer's database, the test database and production must end up with exactly the same tables. Running scripts in order is repeatable; clicking around in a database tool is not.
+**Learn:** Never change a production table by hand. Write a migration.
+
+### 6.7 Automatic quality checks
+**What:**
+- **ruff** checks Python style and common bugs, and formats code.
+- **mypy** (strict mode) checks that types match: for example, it caught that we passed arguments to `JSONResponse` in the wrong order.
+- **pytest** runs the tests: they also caught the same bug, because a 404 page crashed.
+- **pre-commit** runs checks automatically on every `git commit`. It also **refuses to commit secret or private files**.
+- **GitHub Actions (CI)** runs everything again on GitHub for every push, on a clean machine with a fresh database.
+**Why:** People forget things; machines don't. Bugs found by a tool in seconds are far cheaper than bugs found by a customer.
+**Learn:** Real lesson from today: two independent tools (tests and type checker) both caught a real bug before anyone ran the app.
+
+### 6.8 Frontend skeleton and the dev proxy
+**What:** A React + TypeScript app created with Vite in `web/`. In development the browser talks only to Vite (port 5173), which forwards `/api/...` to the API (port 8000).
+**Why:** To the browser, the page and the API look like one website. That avoids "CORS" problems and lets us safely use cookies for login later.
+
+### 6.9 Careful with brand-new packages
+**What:** We installed web packages with `npm install --before=2026-10-05`, used `create-vite` 9.2.1 instead of a version released that same day, and did not install an unfamiliar package that a warning suggested.
+**Why:** Attackers sometimes publish malicious versions of popular packages or look-alike names. Waiting a couple of weeks lets the community spot problems first.
+**Learn:** Pin versions, prefer well-known packages, and be suspicious of brand-new releases and unfamiliar names.
+
+### 6.10 Docker files, even without Docker locally
+**What:** `api/Dockerfile`, `web/Dockerfile` and `docker-compose.yml` exist, and CI builds the images on every push.
+**Why:** We will deploy with containers. Building them in CI means they stay working even though nobody runs Docker on their laptop yet.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -120,4 +178,13 @@ We never overwrite readings. Each save becomes a new, time-stamped record, and "
 | **Autosave** | Saving automatically at a sensible moment (here: when leaving a field) instead of pressing a button. |
 | **Blur** | The browser event fired when the cursor leaves an input field. |
 | **Polling** | The browser asking the server "anything new?" every few seconds. |
+| **Least privilege** | Give each user or program only the permissions it really needs. |
+| **Health endpoint** | A URL that reports whether the service and its database are working. |
+| **Migration** | A numbered script that changes the database structure; applied in order. |
+| **Linter** | A tool that checks code for style problems and common mistakes (ruff, oxlint). |
+| **Type checker** | A tool that checks values are used with the right types (mypy, TypeScript). |
+| **CI (Continuous Integration)** | Automatic build and test on a server for every change pushed. |
+| **pre-commit hook** | A check Git runs automatically before accepting a commit. |
+| **Proxy** | A server that forwards requests to another server. |
+| **CORS** | Browser rule that limits which websites may call an API from JavaScript. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |
