@@ -15,7 +15,8 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | Step | State |
 |---|---|
 | 0 – Foundation (API/web skeletons, DB roles, tooling, CI) | Done |
-| 1 – Identity and tenancy (login, roles/permissions, companies, plants, users, RLS, audit) | Done (API only, no UI yet) |
+| 1 – Identity and tenancy (login, roles/permissions, companies, plants, users, RLS, audit) | Done (API) |
+| 1b – Web app shell (login page, role-based menu, plant switcher, placeholder pages) | Done |
 | 2 – Configuration engine (parameters, formulas, limits, rules) | Not started |
 
 ## 3. Repository layout
@@ -49,7 +50,17 @@ api/                      Backend (FastAPI, Python 3.12)
   migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS
   scripts/                create_dev_db.sql, grant_app_role.sql, docker-init-db.sh
   tests/                  pytest: conftest (test DB setup), helpers (data builders), test_*.py
-web/                      Frontend (React 19 + TypeScript + Vite); placeholder page only
+web/                      Frontend (React 19 + TypeScript + Vite + react-router 7)
+  src/
+    main.tsx, App.tsx     Entry point; routes (login when signed out, AppLayout when signed in)
+    api/client.ts         fetch wrapper: in-memory access token, auto refresh on 401, ApiError
+    api/types.ts          API response types (Me, ...)
+    auth/AuthContext.tsx  AuthProvider: session restore on load, login/logout, selected plant
+    auth/useAuth.ts       useAuth() hook and AuthState type
+    navigation.ts         Menu entries and the permission each one needs
+    layout/AppLayout.tsx  Sidebar menu, top bar (company, plant switcher, user, logout)
+    pages/                LoginPage, HomePage, PlaceholderPage (+ NoAccess, NotFound)
+    *.test.ts             vitest tests
 ```
 
 Some files exist only on the project owner's machine and are deliberately **not** in Git (internal brief, internal work log, reference designs). They are in `.gitignore`, and a pre-commit hook blocks them.
@@ -102,7 +113,8 @@ Created by `app/scripts/seed_dev.py` (refuses to run when `ENVIRONMENT=productio
 | `manager1` | manager | Unit 1 – Cooling Tower |
 | `operator1` | operator | Unit 1 – Cooling Tower |
 
-Try it: open http://localhost:8000/api/v1/docs, call `POST /auth/login`, copy `access_token`, click **Authorize**, paste it.
+Try it in the browser: run the API and the web app (section 6), open http://localhost:5173 and sign in.
+Or in Swagger: open http://localhost:8000/api/v1/docs, call `POST /auth/login`, copy `access_token`, click **Authorize**, paste it.
 
 ## 6. Everyday commands
 
@@ -114,7 +126,7 @@ Try it: open http://localhost:8000/api/v1/docs, call `POST /auth/login`, copy `a
 | API tests | `cd api && .venv/Scripts/python.exe -m pytest` |
 | API lint + format | `cd api && .venv/Scripts/python.exe -m ruff check . && .venv/Scripts/python.exe -m ruff format .` |
 | API type check | `cd api && .venv/Scripts/python.exe -m mypy app tests migrations` |
-| Web lint / types / build | `cd web && npm run lint && npm run typecheck && npm run build` |
+| Web lint / types / tests / build | `cd web && npm run lint && npm run typecheck && npm test && npm run build` |
 | New migration | `cd api && .venv/Scripts/python.exe -m alembic revision --autogenerate -m "describe change"` (review the file before committing) |
 | Apply migrations | `cd api && .venv/Scripts/python.exe -m alembic upgrade head` |
 | Seed demo data | `cd api && .venv/Scripts/python.exe -m app.scripts.seed_dev` |
@@ -223,6 +235,13 @@ Code checks **permission strings**, never role names: `principal.require("plants
 ### 8.7 Web ↔ API
 In development the browser talks only to Vite (:5173), which proxies `/api` to FastAPI (:8000). In Docker/production nginx does the same. One origin keeps the refresh cookie simple.
 
+### 8.8 Web app
+- **Session:** `api/client.ts` keeps the access token **in memory only** (never in localStorage). On page load `AuthProvider` calls `POST /auth/refresh`; the httpOnly cookie restores the session silently. Any request that gets a 401 triggers one refresh and a retry; concurrent requests share one refresh call. If refresh fails, the app returns to the login page.
+- **Menu:** `navigation.ts` lists menu entries with the permission each needs; `menuFor(me.permissions)` filters them. Routes for pages the user lacks permission for show "No access". This is convenience only: the API enforces permissions on every request.
+- **Plant switcher:** shown in the top bar only when `/me` returns more than one plant. The choice is remembered in localStorage (wrapped in try/catch; purely a convenience).
+- **Placeholders:** every menu page except Home is a placeholder that names the step that delivers it. The three module entries (Water Chemistry, Filter, Thermal) are hard-coded **temporarily**; from step 4 the module list comes from the API.
+- **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette). To be aligned with the original SMAYAA demo design once available.
+
 ## 9. API endpoints (all under `/api/v1`)
 
 | Method | Path | Who | Description |
@@ -271,13 +290,14 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator), `login`. Test data is written as the owner role.
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.
+- **Web:** `npm test` (vitest). `navigation.test.ts` checks the menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`).
 
 ## 12. Quality gates and CI
 
 - **pre-commit** (`.pre-commit-config.yaml`): blocks private/secret files, whitespace/EOF fixes, YAML/TOML checks, large files, private keys, ruff lint + format on `api/`.
 - **GitHub Actions** (`.github/workflows/ci.yml`) on push to `main` and pull requests:
   - `api`: ruff, format check, mypy (strict), create DB roles in a Postgres 16 service, migrate up → down → up, pytest.
-  - `web`: `npm ci`, oxlint, `tsc -b`, `vite build`.
+  - `web`: `npm ci`, oxlint, `tsc -b`, vitest, `vite build`.
   - `docker`: builds both images.
 - ruff `0.17.1` is pinned in both `api/pyproject.toml` and `.pre-commit-config.yaml`; change them together.
 

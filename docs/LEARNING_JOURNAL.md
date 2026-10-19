@@ -228,6 +228,37 @@ This step answers three questions for every request: **who is this?** (authentic
 
 ---
 
+## Entry 8 – A first web app: login and a menu that fits your role (2026-10-19)
+
+**What we did**
+- A **login page** in the browser.
+- After logging in, a **sidebar menu that depends on your role**:
+  - operator: Water Chemistry, Filter, Thermal;
+  - manager: the same plus Limits and Users;
+  - company admin: also Plants;
+  - super admin: Companies, Configuration, Audit log, and never the plant modules.
+- A **plant switcher** in the top bar for people with more than one plant.
+- The other pages are **placeholders** that say which step will fill them in.
+
+**Why build this before the "real" screens?**
+The owner wanted something to click in the browser early. Login and roles were already finished in the backend, so a login page and menu could be built without fake data. The module screens wait until there is real data to show (steps 2–4), so they don't have to be rebuilt later.
+
+**How the browser stays logged in (and why it's safe)**
+- The short-lived access token is kept **only in the page's memory**, not in browser storage. Storage can be read by any script running on the page; memory disappears when the tab closes.
+- When you reload the page, memory is empty. The app quietly asks the server for a new token using the **httpOnly refresh cookie**, which JavaScript can't read at all. If that works, you're still logged in.
+- When a token expires in the middle of your work, the app renews it automatically and repeats your request. You never notice.
+- If several requests notice the expiry at once, they **share one renewal** instead of each asking separately (asking twice would look like a stolen token, see entry 7.2).
+
+**Menus are not security**
+The menu is built from the permission list the server sends (`GET /me`). Hiding a menu item only keeps the screen tidy. Anyone can still type the address or call the API directly, so **the server checks permission on every request** anyway (that's what step 1 built).
+
+**What to learn**
+- Keep secrets out of places scripts can read.
+- Build the frontend from what the backend says (permissions from `/me`), not from role names hard-coded in the browser.
+- Test logic, not just looks: we tested the menu for each role and the token-renewal rules with a fake server (`fetch` replaced by a test double).
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -267,4 +298,7 @@ This step answers three questions for every request: **who is this?** (authentic
 | **Audit log** | Permanent record of who changed what and when. |
 | **Fail closed** | When something is missing or broken, deny access rather than allow it. |
 | **Flaky test** | A test that sometimes passes and sometimes fails without code changes. |
+| **SPA (single-page app)** | A web app that loads once and then changes screens without full page reloads (React). |
+| **Route** | A mapping from an address like `/limits` to the screen shown for it. |
+| **Test double / mock** | A fake replacement (e.g. a fake server) used in tests to control what happens. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |
