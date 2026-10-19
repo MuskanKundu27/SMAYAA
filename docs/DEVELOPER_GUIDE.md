@@ -22,6 +22,7 @@ README.md               Short project intro
 .gitattributes          Line endings forced to LF (needed for scripts run in Docker)
 docs/
   DEVELOPER_GUIDE.md    This file
+  LEARNING_JOURNAL.md   Step-by-step "what and why" diary for junior developers
 ```
 
 Some files exist only on the project owner's machine and are deliberately **not** in Git: the internal product brief, internal work log and reference designs. Do not commit them; they are listed in `.gitignore`.
