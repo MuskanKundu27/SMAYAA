@@ -28,9 +28,14 @@ Some files exist only on the project owner's machine and are deliberately **not*
 
 ## 4. Prerequisites
 
-- Docker Desktop (Windows: x86_64 build, WSL 2 backend)
-- Git
-- Node.js 20+ (for working on the web app outside Docker)
+Local development currently runs **natively, without Docker**:
+
+- **Python 3.12** – on Windows: `py install 3.12`, then use `py -3.12`.
+- **PostgreSQL 16** – on Windows: `winget install --id PostgreSQL.PostgreSQL.16 -e` (runs as service `postgresql-x64-16` on port 5432; you choose the `postgres` superuser password during install).
+- **Node.js 20+** and npm – for the web app.
+- **Git**
+
+Docker files will be provided for deployment and optional local use, but are not required.
 
 ## 5. Getting started
 
