@@ -78,6 +78,31 @@ Code is expensive to change once it is written. A written plan lets everyone agr
 
 ---
 
+## Entry 5 – Saving readings automatically, without a Save button (2026-10-19)
+
+**What we decided**
+When someone at a plant changes a value (for example hardness), the change must show up everywhere it matters: in the calculated values that use it, in the alerts, and in the Filter and Thermal screens, for everyone at that plant. There is **no Save button**. Instead:
+- The value is saved automatically when the person **leaves the field** (clicks or tabs to the next box) or **presses Enter**.
+- While they are still typing, **only they** see a preview of the new calculations.
+- After saving, everyone else sees the change within a few seconds.
+- A small note says "Saved ✓ by operator1 at 14:32".
+
+**Why not save on every keystroke?**
+Typing "600" happens as "6", then "60", then "600". If we saved each keystroke, other people would briefly see hardness = 6, get false alerts, and the history would fill with junk. Saving when the person leaves the field means only finished values are saved.
+
+**Why does the server receive only the changed field?**
+Imagine the operator changes hardness while the manager changes pH at the same moment. If each screen sent *all* values, the second save would overwrite the first person's change with an old number. Sending only the changed field and letting the server **merge** it into the latest reading means both changes survive.
+
+**Why is every save a new record instead of updating the old one?**
+We never overwrite readings. Each save becomes a new, time-stamped record, and "current values" simply means "the newest record". This gives us a full history for free (who changed what, and when), which is needed for trends, reports and audits.
+
+**What to learn**
+- Good user experience (no Save button) and correct data (no half-typed values) can both be achieved by choosing *when* to save carefully.
+- Think about two people editing at once. Sending only what changed avoids accidentally erasing someone else's work.
+- Storing events (new rows) instead of overwriting gives you history and an audit trail without extra work.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -92,3 +117,7 @@ Code is expensive to change once it is written. A written plan lets everyone agr
 | **Docker / container** | A way to package an app with everything it needs so it runs the same anywhere. |
 | **JSONB** | A PostgreSQL column type that stores JSON data efficiently and can be searched. |
 | **Row-level security (RLS)** | A PostgreSQL feature that filters which rows each database session can see. |
+| **Autosave** | Saving automatically at a sensible moment (here: when leaving a field) instead of pressing a button. |
+| **Blur** | The browser event fired when the cursor leaves an input field. |
+| **Polling** | The browser asking the server "anything new?" every few seconds. |
+| **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |
