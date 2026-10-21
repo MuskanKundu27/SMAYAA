@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import REPO_ROOT, Environment, get_settings
 from app.core.security import hash_password
-from app.models import Company, Plant, RoleAssignment, User
+from app.engine.calculation import calculate
+from app.models import Company, Plant, Reading, RoleAssignment, User
+from app.services.config_common import active_parameters, parsed_formulas
+from app.services.limits import plant_setting
+from app.services.plant_state import BASELINE_SETTING
 from app.services.templates import apply_template
 from app.templates.default import DEFAULT_TEMPLATE
 
@@ -82,8 +86,31 @@ def seed(db: Session) -> list[str]:
     added = apply_template(db, company, DEFAULT_TEMPLATE, actor_id=None)
     if any(added.values()):
         created.append("template " + ", ".join(f"{n} {k}" for k, n in added.items() if n))
+
+    # A first reading with the sample values, so the screens have data on first login.
+    if db.scalar(select(Reading.id).where(Reading.plant_id == plant.id).limit(1)) is None:
+        db.add(sample_reading(db, plant, entered_by="manager1"))
+        created.append("first sample reading")
     db.commit()
     return created
+
+
+def sample_reading(db: Session, plant: Plant, entered_by: str) -> Reading:
+    params = active_parameters(db, plant.company_id)
+    inputs = {k: p.sample_value for k, p in params.items() if p.kind == "input"}
+    formulas = parsed_formulas(params.values())
+    base = plant_setting(db, plant, BASELINE_SETTING)
+    return Reading(
+        company_id=plant.company_id,
+        plant_id=plant.id,
+        created_by=db.scalar(select(User.id).where(User.username == entered_by)),
+        source="seed",
+        input_values=inputs,
+        calculated_values=calculate(inputs, formulas, base),
+        formula_versions={k: params[k].formula_version for k in formulas},
+        settings_used={BASELINE_SETTING: base},
+        changed_keys=sorted(inputs),
+    )
 
 
 def main() -> None:

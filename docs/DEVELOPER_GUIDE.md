@@ -18,7 +18,8 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 1 – Identity and tenancy (login, roles/permissions, companies, plants, users, RLS, audit) | Done (API) |
 | 1b – Web app shell (login page, role-based menu, plant switcher, placeholder pages) | Done |
 | 2 – Configuration engine (safe evaluator, parameters, formulas, limits, treatments, rules, modules, template) | Done (API) |
-| 3 – Readings and alerts | Not started |
+| 3 – Readings and alerts (readings as events, merge on save, preview, alerts, predicted problems, module screens) | Done (API) |
+| 4 – Module renderer (React widget registry, alert bar, polling) | Not started |
 
 ## 3. Repository layout
 
@@ -42,7 +43,8 @@ api/                      Backend (FastAPI, Python 3.12)
                           tenant (TenantContext → Postgres RLS settings)
     models/               SQLAlchemy models: tenancy (Company, Plant), identity (User, Role,
                           RolePermission, RoleAssignment, OperatorProfile, RefreshToken), audit,
-                          config (Parameter, Limit, PlantSetting, Treatment, Rule, Module)
+                          config (Parameter, Limit, PlantSetting, Treatment, Rule, Module),
+                          readings (Reading)
     auth/                 principal (Principal), provider (AuthProvider, PasswordAuthProvider),
                           dependencies (get_principal, CurrentPrincipal, require)
     engine/               Pure calculation code (no DB): evaluator (safe expressions),
@@ -50,12 +52,15 @@ api/                      Backend (FastAPI, Python 3.12)
     templates/default.py  The default template (parameters, treatments, rules, modules) as data
     services/             Business rules: auth, companies, plants, users, audit, parameters,
                           rules, modules (+ treatments), templates, limits (+ plant settings),
-                          config_common (shared helpers)
+                          config_common (shared helpers), readings, plant_state (values,
+                          statuses, alerts, predicted problems), plant_views (module screens)
     schemas/              Pydantic request/response models (config.py has the widget types)
     routers/              HTTP endpoints: health, auth (+ /me), companies, plants, users,
-                          config (company configuration), limits (plant limits + settings)
+                          config (company configuration), limits (plant limits + settings),
+                          readings (readings, alerts, plant modules)
     scripts/seed_dev.py   Demo data for local development
-  migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS
+  migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS,
+                          0004 readings + RLS
   scripts/                create_dev_db.sql, grant_app_role.sql, docker-init-db.sh
   tests/                  pytest: conftest (test DB setup), helpers (data builders), test_*.py
 web/                      Frontend (React 19 + TypeScript + Vite + react-router 7)
@@ -120,6 +125,8 @@ Created by `app/scripts/seed_dev.py` (refuses to run when `ENVIRONMENT=productio
 | `companyadmin` | company_admin | Demo Power Ltd (all plants) |
 | `manager1` | manager | Unit 1 – Cooling Tower |
 | `operator1` | operator | Unit 1 – Cooling Tower |
+
+The seed also gives Demo Power Ltd the default template and the plant a first reading with the sample values (entered by `manager1`).
 
 Try it in the browser: run the API and the web app (section 6), open http://localhost:5173 and sign in.
 Or in Swagger: open http://localhost:8000/api/v1/docs, call `POST /auth/login`, copy `access_token`, click **Authorize**, paste it.
@@ -236,6 +243,7 @@ Code checks **permission strings**, never role names: `principal.require("plants
    | refresh_tokens | no RLS (hashes only, not tenant data) | |
    | parameters, treatments, rules, modules | platform, or own company | **platform only** (super admin configures) |
    | limits, plant_settings | own company + visible plant (**no platform clause**) | same |
+   | readings | own company + visible plant (**no platform clause**) | insert only; UPDATE/DELETE privileges revoked (append-only) |
 
    Plant data (limits, plant settings, and readings from step 3) has **no** platform clause, so the super admin can never read it.
 
@@ -287,6 +295,49 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Who may edit:** `limits.write` (manager), **or** `limits.write_without_manager` (company admin) **only while `plant_has_active_manager()` is false**, checked at request time. `GET` returns `has_manager` and `can_edit`, so the UI knows. `PUT` takes a list of `{parameter_key, warn_min, good_min, good_max, warn_max}`; ordering is enforced by Pydantic and by a database check constraint. `DELETE /limits/{key}` reverts to the default.
 - **Plant settings:** known settings live in `PLANT_SETTING_TYPES` (currently `clean_baseline_approach: float`). Each value is the plant's own value, else the company default. Editing uses the same rule with `plant_settings.write` (manager) or the no-manager fallback.
 
+### 8.6e Readings (`services/readings.py`)
+- **A reading is an immutable event.** `POST /plants/{id}/readings` takes **only the changed values** (`{"values": {"hard": 650}}`; `null` clears a value).
+- The server merges them onto the latest reading's inputs, recalculates every calculated parameter with the **current** formulas and the plant's baseline, and inserts a **new row** with:
+  - `input_values`: the full merged set;
+  - `calculated_values`;
+  - `formula_versions`: the version of each formula used;
+  - `settings_used`: e.g. the baseline value;
+  - `changed_keys`;
+  - `created_by` and `recorded_at`.
+- Two people saving different fields at the same time both keep their change; for the same field, last save wins. If nothing actually changed, no row is added (`created: false`, HTTP 200 instead of 201).
+- **Validation:** only active **input** parameters may be sent (unknown/inactive or calculated keys → 422 with per-field details); values must be finite numbers or `null`.
+- **Who may save:** `readings.write` (manager, operator; the company admin is view-only) **and**, if an `operator_profiles` row exists for the user at that plant, `can_edit_readings`. No row = allowed.
+- `POST .../readings/preview` returns tiles, alerts and problems for unsaved values (used for the live preview while typing). Nothing is stored.
+- `GET .../readings/latest` returns the newest reading (or `null`); screens poll it and reload when the id changes. `GET .../readings?from=&to=&limit=&offset=` returns history, newest first, **with values exactly as stored** at save time. So changing a formula never rewrites history (tested).
+
+### 8.6f Plant state, alerts, predicted problems (`services/plant_state.py`)
+`build_state(db, plant, inputs)` is the one function that turns input values into a `PlantState`: active parameters, effective limits, all values (inputs + calculated with **current** formulas and baseline) and statuses. The alert bar, module screens and preview all use it, so they always agree. Live screens therefore reflect formula, limit or baseline changes immediately, while history keeps the stored values.
+- **Alerts** (`alerts(db, state)`): every parameter whose status is `warn` (severity `medium`) or `bad` (severity `high`), with value, unit, direction, limits, cause/treatment/precautions from `treatments` (or `FALLBACK_TREATMENT`), `needs_review`, and **modules affected**. Sorted most severe first.
+- **Modules affected** (`affected_modules`) are worked out from configuration, not hard-coded. A module is affected by parameter X if:
+  - it shows X or any calculation that (indirectly) uses X; or
+  - it shows a rule that uses X; or
+  - a rule using X lists the module in `affects_modules`.
+
+  Example: hardness → Water Chemistry (shown there) + Thermal (TH rules use it; LSI uses it).
+- **Predicted problems** (`predicted_problems`): every active rule is evaluated with the rule helpers. A rule whose referenced values are missing (no data, or an inactive parameter) is reported as **insufficient data** instead of guessing. Matches are sorted by probability (0–100, rounded), highest first. All matches are shown (no first-match logic).
+
+### 8.6g Module screens for plant users (`services/plant_views.py`)
+- `GET /plants/{id}/modules` lists the company's active modules, filtered by the operator profile's `visible_modules` if one exists. Needs `modules.view`.
+- `GET /plants/{id}/modules/{key}` returns the layout with **the data each widget needs**, so the frontend only draws (it never calculates statuses):
+
+  | Widget | Data returned |
+  |---|---|
+  | `input_group` | tiles for the group's (or listed) input parameters; `editable` if the user may save readings |
+  | `value_tiles`, `inputs_summary` | tiles for listed parameters |
+  | `predicted_problems` | matched problems for the listed rules + `insufficient_rules` |
+  | `alert_list` | current alerts (optionally filtered by `modules`/`params`) |
+  | `trend_chart` | series of `{t, v}` from readings in the last `hours` (max 500 points) with limits |
+  | `text_note` | the text |
+
+  A tile has key, label, unit, precision, kind, value, status (`good|warn|bad|na`), direction, limits, editable, and `insufficient_data` (true when the parameter is missing or inactive). This is how widgets **degrade gracefully** instead of failing.
+- `GET /plants/{id}/alerts` is for the alert bar: the latest reading's summary ("saved by X at …") + alerts. Needs `alerts.view`; empty if an operator profile has `show_alerts = false`.
+- The super admin has none of these permissions, and RLS gives the platform path no access to readings.
+
 ### 8.7 Web ↔ API
 In development the browser talks only to Vite (:5173), which proxies `/api` to FastAPI (:8000). In Docker/production nginx does the same. One origin keeps the refresh cookie simple.
 
@@ -330,6 +381,13 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | DELETE | `/plants/{id}/limits/{key}` | same | Revert one parameter to its default limits |
 | GET | `/plants/{id}/settings` | limits.read | e.g. `clean_baseline_approach` with `source` |
 | PUT | `/plants/{id}/settings` | plant_settings.write, or company admin without manager | `{values: {clean_baseline_approach: 4.5}}` |
+| POST | `/plants/{id}/readings` | readings.write (+ operator profile) | `{values: {key: number|null}}` (changed fields only) → 201 `{reading, created: true}` or 200 if unchanged |
+| POST | `/plants/{id}/readings/preview` | readings.write | Same body → tiles, alerts, problems; nothing stored |
+| GET | `/plants/{id}/readings/latest` | readings.read | Newest reading or `null` (for polling) |
+| GET | `/plants/{id}/readings` | readings.read | History, newest first; `from`, `to`, `limit`, `offset` |
+| GET | `/plants/{id}/alerts` | alerts.view | `{reading, alerts}` for the alert bar |
+| GET | `/plants/{id}/modules` | modules.view | Modules the user may open |
+| GET | `/plants/{id}/modules/{key}` | modules.view + readings.read | Widgets with their data (see 8.6g) |
 
 Password policy: at least 10 characters, a letter and a digit, must not contain the username. Usernames: 3–50 of `A–Z a–z 0–9 . _ -`, stored lower-case, unique across the platform.
 
@@ -366,6 +424,11 @@ rules             id, company_id, code (unique per company), title, kind (predic
 modules           id, company_id, key (unique per company), title, sort_order, is_active,
                   layout jsonb {"widgets": [...]}, created_at, updated_at
 companies.settings["plant_setting_defaults"]   company-wide defaults for plant settings
+
+-- 0004 readings (append-only)
+readings          id, company_id, plant_id, recorded_at, created_by, source (manual|seed|…),
+                  input_values jsonb, calculated_values jsonb, formula_versions jsonb,
+                  settings_used jsonb, changed_keys[]      index (plant_id, recorded_at DESC)
 ```
 
 All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids cannot be guessed.
@@ -375,6 +438,7 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - `tests/conftest.py`: the app runs against `smayaa_test` as **`smayaa_app`**, so RLS is active in tests. The schema is migrated once per run (as the owner). After each test, tenant tables are truncated.
 - `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator; manager and operator at plant A only), `with_template` (applies the default template), `login`. Test data is written as the owner role.
 - Step 2 tests: `test_engine` (evaluator incl. unsafe expressions, statuses, calculation order, rule helpers), `test_template` (the template is valid; companies get it; re-applying adds nothing), `test_config_api` (formula validation, cycles, reserved keys, versioning, deactivation blocked by dependents, rules, modules, treatments, tenant users get 403), `test_limits` (manager edits, operator 403, company-admin fallback, plant/company isolation, settings, RLS).
+- Step 3 tests (`test_readings`): saving and merging (two users, different fields), no-op saves, validation, clearing values, **history unchanged after a formula change**, preview stores nothing, latest/history filters, permissions (company admin view-only, super admin 403, operator profile), alerts (severity, direction, treatment, fallback, modules affected; a limit change clears an alert; manager and operator see the same), module screens (layout from configuration, Filter/Thermal react to chemistry, insufficient data, **a new calculation appears in a module without code changes**), and the database layer (readings can't be updated/deleted; other companies and the platform see none).
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.
 - **Web:** `npm test` (vitest). `navigation.test.ts` checks the menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`).

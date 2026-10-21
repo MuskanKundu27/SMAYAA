@@ -10,6 +10,7 @@ from app.models.identity import (
     RolePermission,
     User,
 )
+from app.models.readings import Reading
 from app.models.tenancy import Company, Plant
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "Parameter",
     "Plant",
     "PlantSetting",
+    "Reading",
     "RefreshToken",
     "Role",
     "RoleAssignment",

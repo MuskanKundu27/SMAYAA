@@ -1,0 +1,191 @@
+"""Module screens and the alert bar for plant users.
+
+GET /plants/{id}/modules/{key} returns the module's widget layout with the data each widget
+needs, so the frontend only draws (it never calculates or decides statuses itself).
+"""
+
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.auth.principal import Principal
+from app.core.errors import NotFoundError
+from app.models import Module, Reading
+from app.schemas.config import LimitValues
+from app.schemas.readings import (
+    Alert,
+    ModuleSummary,
+    ModuleView,
+    PlantAlerts,
+    TrendPoint,
+    TrendSeries,
+    WidgetView,
+)
+from app.services.plant_state import (
+    PlantState,
+    RuleResults,
+    alerts,
+    build_state,
+    predicted_problems,
+)
+from app.services.plants import get_plant_in_scope
+from app.services.readings import can_edit_readings, latest_reading, operator_profile, summary
+
+TREND_MAX_POINTS = 500
+
+
+def _visible_modules(
+    db: Session, principal: Principal, plant_id: uuid.UUID, company_id: uuid.UUID
+) -> list[Module]:
+    modules = list(
+        db.scalars(
+            select(Module)
+            .where(Module.company_id == company_id, Module.is_active.is_(True))
+            .order_by(Module.sort_order, Module.key)
+        )
+    )
+    profile = operator_profile(db, principal, plant_id)
+    if profile is not None and profile.visible_modules is not None:
+        allowed = set(profile.visible_modules)
+        modules = [m for m in modules if m.key in allowed]
+    return modules
+
+
+def list_modules(db: Session, principal: Principal, plant_id: uuid.UUID) -> list[ModuleSummary]:
+    principal.require("modules.view")
+    plant = get_plant_in_scope(db, principal, plant_id)
+    return [
+        ModuleSummary(key=m.key, title=m.title, sort_order=m.sort_order)
+        for m in _visible_modules(db, principal, plant.id, plant.company_id)
+    ]
+
+
+def _trend(db: Session, state: PlantState, keys: list[str], hours: int) -> list[TrendSeries]:
+    since = datetime.now(UTC) - timedelta(hours=hours)
+    rows = db.scalars(
+        select(Reading)
+        .where(Reading.plant_id == state.plant.id, Reading.recorded_at >= since)
+        .order_by(Reading.recorded_at.desc())
+        .limit(TREND_MAX_POINTS)
+    ).all()
+    series = []
+    for key in keys:
+        p = state.params.get(key)
+        if p is None:
+            continue
+        limits = state.limits.get(key)
+        points = [
+            TrendPoint(t=r.recorded_at, v=(r.input_values | r.calculated_values).get(key))
+            for r in reversed(rows)
+        ]
+        series.append(
+            TrendSeries(
+                key=key,
+                label=p.label,
+                unit=p.unit,
+                points=points,
+                limits=LimitValues(**limits.__dict__) if limits else None,
+            )
+        )
+    return series
+
+
+def _widget_view(
+    db: Session,
+    widget: dict[str, Any],
+    state: PlantState,
+    editable: bool,
+    rule_results: RuleResults,
+    plant_alerts: list[Alert],
+) -> WidgetView:
+    kind = widget.get("type", "")
+    title = widget.get("title", "")
+    params: list[str] = widget.get("params") or []
+
+    if kind == "input_group":
+        group = widget.get("group")
+        keys = params or [
+            k for k, p in state.params.items() if p.group_key == group and p.kind == "input"
+        ]
+        return WidgetView(type=kind, title=title, tiles=[state.tile(k, editable) for k in keys])
+    if kind in ("value_tiles", "inputs_summary"):
+        return WidgetView(type=kind, title=title, tiles=[state.tile(k) for k in params])
+    if kind == "predicted_problems":
+        codes = set(widget.get("rules") or [])
+        return WidgetView(
+            type=kind,
+            title=title,
+            problems=[p for p in rule_results.matched if p.code in codes],
+            insufficient_rules=sorted(codes & set(rule_results.insufficient)),
+        )
+    if kind == "alert_list":
+        only_modules = set(widget.get("modules") or [])
+        only_keys = set(params)
+        shown = [
+            a
+            for a in plant_alerts
+            if (not only_modules or only_modules & set(a.modules))
+            and (not only_keys or a.parameter_key in only_keys)
+        ]
+        return WidgetView(type=kind, title=title, alerts=shown)
+    if kind == "trend_chart":
+        return WidgetView(
+            type=kind, title=title, series=_trend(db, state, params, int(widget.get("hours", 24)))
+        )
+    if kind == "text_note":
+        return WidgetView(type=kind, title=title, text=widget.get("text", ""))
+    return WidgetView(type=kind, title=title)  # unknown type: the frontend shows a placeholder
+
+
+def module_view(db: Session, principal: Principal, plant_id: uuid.UUID, key: str) -> ModuleView:
+    principal.require("modules.view")
+    principal.require("readings.read")
+    plant = get_plant_in_scope(db, principal, plant_id)
+    module = next(
+        (m for m in _visible_modules(db, principal, plant.id, plant.company_id) if m.key == key),
+        None,
+    )
+    if module is None:
+        raise NotFoundError("Module not found.")
+
+    reading = latest_reading(db, plant.id)
+    state = build_state(db, plant, reading.input_values if reading else {})
+    editable = can_edit_readings(db, principal, plant.id)
+    rule_results = predicted_problems(db, state)
+    plant_alerts = _alerts_for(db, principal, plant.id, state)
+    widgets = [
+        _widget_view(db, w, state, editable, rule_results, plant_alerts)
+        for w in module.layout.get("widgets", [])
+    ]
+    return ModuleView(
+        key=module.key,
+        title=module.title,
+        reading=summary(db, reading),
+        can_edit_readings=editable,
+        widgets=widgets,
+    )
+
+
+def _alerts_for(
+    db: Session, principal: Principal, plant_id: uuid.UUID, state: PlantState
+) -> list[Alert]:
+    if not principal.has("alerts.view"):
+        return []
+    profile = operator_profile(db, principal, plant_id)
+    if profile is not None and not profile.show_alerts:
+        return []
+    return alerts(db, state)
+
+
+def plant_alerts(db: Session, principal: Principal, plant_id: uuid.UUID) -> PlantAlerts:
+    """For the alert bar at the top of every page."""
+    principal.require("alerts.view")
+    plant = get_plant_in_scope(db, principal, plant_id)
+    reading = latest_reading(db, plant.id)
+    state = build_state(db, plant, reading.input_values if reading else {})
+    return PlantAlerts(
+        reading=summary(db, reading), alerts=_alerts_for(db, principal, plant.id, state)
+    )

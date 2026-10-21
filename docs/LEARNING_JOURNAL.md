@@ -324,6 +324,61 @@ When a test fails, don't automatically "fix" the code: first ask which one is wr
 
 ---
 
+## Entry 10 – Step 3: readings and alerts (2026-10-21)
+
+Now the configuration from step 2 comes alive: people enter values, and SMAYAA works out everything else.
+
+### 10.1 Every save is a new row
+**What:** When an operator changes hardness, we don't change the old record. We store a **new reading**: the full set of values after the change, everything calculated from them, which formula versions were used, the baseline used, which fields changed, who saved it, and when.
+**Why:**
+- **History for free:** trends and reports later just read old rows.
+- **Trust:** last month's numbers can never silently change. A test proves it: we change the Range formula, and the old reading still shows the old result with "version 1".
+- **Accountability:** every value has a name and a time attached.
+
+**Extra protection:** the database itself refuses to change or delete readings. The API's database user simply isn't allowed to. A test tries it with raw SQL and gets "permission denied".
+
+### 10.2 Merging changes from two people
+**What:** The screen sends **only the field that changed**. The server takes the latest reading, applies the change, and saves the result.
+**Why:** If the operator changes hardness while the manager changes pH, both changes survive. If the screen sent all values, the second save would put back the old hardness. (Same field at the same moment? The last save wins.)
+**Small detail:** saving a value that didn't change creates nothing, so clicking in and out of a box doesn't fill the history with copies.
+
+### 10.3 One brain for all screens
+**What:** A single function (`build_state`) turns input values into "the plant's current state": all calculated values, each status (good / warning / alert), the alerts, and the predicted problems. The alert bar, the module screens and the live preview all ask this one function.
+**Why:** If each screen calculated on its own, sooner or later two screens would disagree, and nobody would trust either. One brain means the manager and the operator always see exactly the same thing.
+
+### 10.4 Alerts are calculated, not stored
+**What:** An alert is never saved as a row. It's worked out from the latest values and the current limits whenever a screen asks.
+**Why:** When the manager widens a limit, the alert disappears **immediately**, with no "clean-up" job needed. Our test does exactly that.
+Each alert says:
+- what is wrong (parameter, value and unit);
+- how bad it is: **medium** = in the warning band, **high** = beyond it;
+- which way it's wrong (too high or too low);
+- which screens it affects;
+- the likely cause, treatment and precautions, marked "needs review" while they're sample text.
+
+### 10.5 "Which screens does this affect?" – answered from data
+**What:** Instead of writing "chemistry affects Filter and Thermal" in code, we look at the configuration. A screen is affected by hardness if it shows hardness, shows a calculation built from hardness (like LSI), or shows a rule that uses hardness.
+**Why:** If a customer adds a new screen or rule tomorrow, the answer updates itself.
+
+### 10.6 Saying "I don't know" honestly
+**What:** If a predicted-problem rule needs a value that's missing, we show **"insufficient data"** instead of a guess. The same goes for a screen tile whose parameter was switched off.
+**Why:** A confident wrong answer is worse than an honest "not enough data". In industrial settings, people act on what the screen says.
+
+### 10.7 Screens that only draw
+**What:** For each module, the API sends the list of widgets **already filled with the data they need**: values, statuses, colours to use, problems, alerts.
+**Why:** The browser never decides what is "good" or "bad"; only the server does. So the rules live in one place, and a future mobile app could draw the same screens without copying any logic.
+
+### 10.8 What we checked
+- 207 automatic tests in total (26 new).
+- A walk-through on the real demo data:
+  1. The operator sets hardness to 900 and TDS to 2300.
+  2. Hardness, TDS and LSI alerts appear (LSI because it's calculated from hardness).
+  3. The thermal fouling prediction rises from 35% to 55%, and a filter problem appears.
+  4. The manager sees the same alerts.
+  5. The manager widens the TDS limit, and that alert clears.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -374,4 +429,8 @@ When a test fails, don't automatically "fix" the code: first ask which one is wr
 | **Topological sort** | Ordering items so each comes after the items it depends on. |
 | **Template** | A ready-made bundle of configuration copied into each new company. |
 | **Widget** | A building block of a screen (input tiles, KPI cards, a chart…). |
+| **Immutable** | Never changed after it is created; changes are recorded as new items instead. |
+| **Append-only** | You may add rows but never update or delete them. |
+| **Derived data** | Data calculated from other data when needed, instead of being stored. |
+| **Degrade gracefully** | When part of something is missing, show what you can and say what's missing, instead of failing. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |
