@@ -8,8 +8,8 @@ User=smayaa
 Group=smayaa
 WorkingDirectory=/opt/smayaa/app/api
 # One worker: the login rate limiter keeps its counters in memory, per process.
-# --proxy-headers makes the real visitor IP (sent by Caddy) visible to the rate limiter.
-ExecStart=/opt/smayaa/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+# --proxy-headers makes the real visitor IP (sent by Caddy or nginx) visible to the rate limiter.
+ExecStart=/opt/smayaa/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port __API_PORT__ --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=always
 RestartSec=3
 

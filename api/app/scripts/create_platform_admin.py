@@ -8,6 +8,7 @@ because no user exists yet who could be logged in to do this through the API.
 """
 
 import getpass
+import re
 import sys
 
 from sqlalchemy import create_engine, select
@@ -15,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, password_problems
 from app.models import RoleAssignment, User
+from app.schemas.users import USERNAME_PATTERN
 from app.scripts.seed_dev import owner_url
 from app.services.audit import record_for
 
@@ -23,6 +25,8 @@ ROLE = "super_admin"
 
 def create(db: Session, username: str, full_name: str, password: str) -> User:
     username = username.lower()
+    if not re.fullmatch(USERNAME_PATTERN, username):
+        raise ValueError("Username must be 3-50 letters, digits, '.', '_' or '-'.")
     if db.scalar(select(User.id).where(User.username == username)):
         raise ValueError(f"Username '{username}' is already taken.")
     problems = password_problems(password, username)

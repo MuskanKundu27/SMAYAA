@@ -22,6 +22,8 @@ def test_created_admin_can_log_in_with_platform_permissions(
 
 
 def test_weak_password_and_taken_username_are_rejected(owner_db: Session) -> None:
+    with pytest.raises(ValueError, match="3-50 letters"):
+        create(owner_db, "has space", "P", GOOD_PASSWORD)
     with pytest.raises(ValueError, match="at least 10"):
         create(owner_db, "platform1", "P", "short1")
     create(owner_db, "platform1", "P", GOOD_PASSWORD)

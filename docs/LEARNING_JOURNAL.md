@@ -443,6 +443,14 @@ Browser ──HTTPS──► Caddy ──/api/...──► our Python API (only 
 - **Build where it is comfortable.** The server has little memory, so we build the React app on a developer PC and upload only the finished files.
 - **Secrets are generated on the server.** The setup script creates random database passwords and the token secret directly on the server and stores them in a file only the app can read. They never pass through GitHub or a chat.
 
+**First live run: two small bugs, found and fixed**
+- *Caddy wouldn't start: "permission denied" on its log file.* We had tested the config as administrator first, and that test created the log file owned by the administrator. Caddy runs as its own limited user and couldn't write to it. Fix: hand the log folder to Caddy after the test.
+- *The site answered "403 Forbidden".* To protect the secrets file, the script set "new files are private" (`umask 077`), and that setting stayed on for the rest of the script, so the web folder became private too. Fix: switch it on only for the secrets file (inside a sub-shell, which forgets the setting when it ends).
+- Lesson: read the error log (`journalctl -u <service>`) before guessing; the exact cause is almost always written there.
+
+**Sharing a server politely**
+A company server may already run other websites. Our setup script only *adds* its own pieces (its own user, folder, database, service and one website entry) and never edits anyone else's. If the server already uses nginx, we add SMAYAA as one more nginx site and test the config (`nginx -t`) before applying it, so a mistake can never take the other sites down.
+
 **What to learn**
 - Production is mostly about *boring reliability*: things restart by themselves, backups happen without anyone remembering, and secrets stay in one protected place.
 - Scripts that can be run twice safely ("idempotent") make fixing mistakes easy: change the script and run it again.

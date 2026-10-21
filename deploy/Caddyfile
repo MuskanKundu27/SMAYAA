@@ -1,4 +1,5 @@
-# SMAYAA web server. setup-server.sh replaces __HOST__ and installs this as /etc/caddy/Caddyfile.
+# SMAYAA web server. setup-server.sh replaces __HOST__ and __API_PORT__ and installs this
+# as /etc/caddy/Caddyfile.
 # Caddy gets and renews the free Let's Encrypt certificate for the host automatically.
 
 __HOST__ {
@@ -13,9 +14,9 @@ __HOST__ {
 		-Server
 	}
 
-	# The API runs locally on port 8000 and is never exposed directly.
+	# The API runs locally and is never exposed directly.
 	handle /api/* {
-		reverse_proxy 127.0.0.1:8000
+		reverse_proxy 127.0.0.1:__API_PORT__
 	}
 
 	# Single-page app: unknown paths load index.html and React decides what to show.
