@@ -4,18 +4,20 @@ import { menuFor, roleLabel } from './navigation'
 
 const labels = (permissions: string[]) => menuFor(permissions).map((item) => item.label)
 
+// Module entries (Water Chemistry, Filter, Thermal) come from the API per plant, not from this
+// static menu, so they never appear here.
 describe('menuFor', () => {
-  it('gives an operator only the modules', () => {
+  it('gives an operator no fixed pages (only API modules)', () => {
     const operator = ['plants.read', 'readings.read', 'readings.write', 'modules.view', 'alerts.view']
-    expect(labels(operator)).toEqual(['Water Chemistry', 'Filter', 'Thermal'])
+    expect(labels(operator)).toEqual([])
   })
 
-  it('gives a manager modules, limits and users but no company administration', () => {
+  it('gives a manager limits and users but no company administration', () => {
     const manager = ['modules.view', 'limits.read', 'limits.write', 'users.read', 'users.manage:operator']
-    expect(labels(manager)).toEqual(['Water Chemistry', 'Filter', 'Thermal', 'Limits', 'Users'])
+    expect(labels(manager)).toEqual(['Limits', 'Users'])
   })
 
-  it('gives a super admin administration only, never modules', () => {
+  it('gives a super admin administration pages', () => {
     const superAdmin = ['companies.read', 'companies.manage', 'users.read', 'config.manage', 'audit.read']
     expect(labels(superAdmin)).toEqual(['Users', 'Companies', 'Configuration', 'Audit log'])
   })

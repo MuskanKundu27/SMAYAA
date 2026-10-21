@@ -1,15 +1,19 @@
 import { NavLink, Outlet } from 'react-router'
 
 import { useAuth } from '../auth/useAuth'
+import { AlertBar } from '../components/AlertBar'
 import { menuFor, roleLabel } from '../navigation'
 import type { MenuItem } from '../navigation'
+import { usePlantData } from '../plant/usePlantData'
 
-const SECTIONS: MenuItem['section'][] = ['Modules', 'Plant', 'Administration']
+const SECTIONS: MenuItem['section'][] = ['Plant', 'Administration']
 
 export function AppLayout() {
-  const { me, plant, selectPlant, logout } = useAuth()
+  const { me, plant, selectPlant, logout, can } = useAuth()
+  const { modules } = usePlantData()
   if (!me) return null
   const items = menuFor(me.permissions)
+  const showAlertBar = Boolean(plant) && can('alerts.view')
 
   return (
     <div className="app">
@@ -22,6 +26,16 @@ export function AppLayout() {
           <NavLink to="/" end className="nav-link">
             Home
           </NavLink>
+          {modules.length > 0 && (
+            <div className="nav-section">
+              <div className="nav-section__title">Modules</div>
+              {modules.map((m) => (
+                <NavLink key={m.key} to={`/m/${m.key}`} className="nav-link">
+                  {m.title}
+                </NavLink>
+              ))}
+            </div>
+          )}
           {SECTIONS.map((section) => {
             const sectionItems = items.filter((item) => item.section === section)
             if (sectionItems.length === 0) return null
@@ -70,6 +84,7 @@ export function AppLayout() {
             </button>
           </div>
         </header>
+        {showAlertBar && <AlertBar />}
         <main className="content">
           <Outlet />
         </main>

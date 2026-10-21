@@ -379,6 +379,38 @@ Each alert says:
 
 ---
 
+## Entry 11 – Step 4: the screens (2026-10-21)
+
+**What we did**
+- **Modules in the menu come from the server**: Water Chemistry, Filter, Thermal, or whatever that company has configured. Nothing about modules is hard-coded in the browser.
+- **Water Chemistry tiles** show each value with its unit, a coloured status (Good / Warning / Alert / No data), a small bar showing where the value sits between its limits, and the limits in words. Operators and managers can type into the input tiles.
+- **Autosave:** when you leave a box (or press Enter), only that value is sent. The tile says "Saving…" then "Saved ✓". Escape cancels.
+- **Live preview:** while you type, after a short pause, the page asks the server "what would happen?" and every tile updates, including calculated ones like LSI. Only you see this preview until you save.
+- **Filter and Thermal** show KPI cards, the inputs used, and predicted problems with a probability bar and the recommended action, clearly labelled as demo heuristics.
+- **The alert bar** sits at the top of every page: green when everything is fine; otherwise how many alerts, which ones (↑ too high, ↓ too low), and who updated last. Click it to see cause, treatment and precautions.
+- **Shared updates:** every 5 seconds each screen asks the server "is there a newer reading?". If yes, it reloads, so a manager sees the operator's change within seconds.
+
+**Why the browser doesn't calculate anything**
+The server sends each tile with its status already decided. If the browser had its own copy of the rules, the two copies would eventually disagree. One source of truth is safer, and a future mobile app can reuse the same server answers.
+
+**The widget registry: building screens like Lego**
+A module is a list of widgets ("input tiles for chemistry", "predicted problems FLT-P01…"). The browser has a small lookup table: *widget type → the component that draws it*. A new widget type means one new component and one line in the table. If the server ever sends a type the browser doesn't know yet, it shows a polite placeholder instead of crashing the page.
+
+**Small details that make it feel right**
+- **No flicker:** after saving, the typed number stays visible until the refreshed screen arrives. Otherwise it would briefly jump back to the old value.
+- **Switching plant or module** starts a fresh screen, so a half-typed value from one plant can never be saved to another.
+- **Data is labelled with its plant**, so a slow answer about plant A can't appear while you're looking at plant B.
+
+**Why polling, not instant push?**
+Asking every 5 seconds is simple and reliable, and good enough for water chemistry, which changes over minutes, not milliseconds. Instant push (WebSockets) can replace it later without changing the screens.
+
+**What to learn**
+- Keep decisions (statuses, alerts) in one place, the server, and let screens just draw.
+- Design for things going wrong: unknown widgets, slow networks, people switching pages mid-typing.
+- When a linter warns you about a pattern (here: "resetting state inside an effect"), it's often pointing to a cleaner design. We fixed it by giving each screen a fresh start instead of clearing it by hand.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -433,4 +465,7 @@ Each alert says:
 | **Append-only** | You may add rows but never update or delete them. |
 | **Derived data** | Data calculated from other data when needed, instead of being stored. |
 | **Degrade gracefully** | When part of something is missing, show what you can and say what's missing, instead of failing. |
+| **Registry** | A lookup table from a name (e.g. a widget type) to the code that handles it. |
+| **Debounce** | Waiting for a short pause (e.g. in typing) before doing something, instead of doing it on every key press. |
+| **Live preview** | Showing the effect of a change before it is saved. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |

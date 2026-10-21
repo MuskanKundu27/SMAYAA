@@ -19,7 +19,8 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 1b – Web app shell (login page, role-based menu, plant switcher, placeholder pages) | Done |
 | 2 – Configuration engine (safe evaluator, parameters, formulas, limits, treatments, rules, modules, template) | Done (API) |
 | 3 – Readings and alerts (readings as events, merge on save, preview, alerts, predicted problems, module screens) | Done (API) |
-| 4 – Module renderer (React widget registry, alert bar, polling) | Not started |
+| 4 – Module renderer (React widget registry, module screens, autosave + live preview, alert bar, polling) | Done (first version; visual design to be aligned with the original demo) |
+| 5 – Management screens (Users, Limits, Configuration, Audit log) | Not started |
 
 ## 3. Repository layout
 
@@ -67,11 +68,19 @@ web/                      Frontend (React 19 + TypeScript + Vite + react-router 
   src/
     main.tsx, App.tsx     Entry point; routes (login when signed out, AppLayout when signed in)
     api/client.ts         fetch wrapper: in-memory access token, auto refresh on 401, ApiError
-    api/types.ts          API response types (Me, ...)
+    api/types.ts          API response types (Me, Tile, WidgetView, ModuleView, Alert, ...)
+    api/plant.ts          Plant endpoints: modules, module view, alerts, latest, save, preview
     auth/AuthContext.tsx  AuthProvider: session restore on load, login/logout, selected plant
     auth/useAuth.ts       useAuth() hook and AuthState type
-    navigation.ts         Menu entries and the permission each one needs
-    layout/AppLayout.tsx  Sidebar menu, top bar (company, plant switcher, user, logout)
+    plant/                PlantDataProvider (module list, alerts, polling → `version`), usePlantData
+    modules/ModulePage.tsx  A module screen: loads the view, drafts, autosave, live preview
+    modules/editing.ts    ModuleEditing context shared by widgets (drafts, commit, preview)
+    modules/widgets.tsx   Widget components (tiles, inputs summary, problems, alerts, trend, note)
+    modules/registry.ts   Widget registry: widget type → component (+ UnknownWidget fallback)
+    components/           TileCard, StatusPill, RangeBar, AlertBar
+    format.ts             Display helpers (numbers, times, limits text, range bar, input parsing)
+    navigation.ts         Fixed menu pages and the permission each needs (modules come from API)
+    layout/AppLayout.tsx  Sidebar (modules from API + fixed pages), top bar, alert bar
     pages/                LoginPage, HomePage, PlaceholderPage (+ NoAccess, NotFound)
     *.test.ts             vitest tests
 ```
@@ -345,8 +354,18 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 - **Session:** `api/client.ts` keeps the access token **in memory only** (never in localStorage). On page load `AuthProvider` calls `POST /auth/refresh`; the httpOnly cookie restores the session silently. Any request that gets a 401 triggers one refresh and a retry; concurrent requests share one refresh call. If refresh fails, the app returns to the login page.
 - **Menu:** `navigation.ts` lists menu entries with the permission each needs; `menuFor(me.permissions)` filters them. Routes for pages the user lacks permission for show "No access". This is convenience only: the API enforces permissions on every request.
 - **Plant switcher:** shown in the top bar only when `/me` returns more than one plant. The choice is remembered in localStorage (wrapped in try/catch; purely a convenience).
-- **Placeholders:** every menu page except Home is a placeholder that names the step that delivers it. The three module entries (Water Chemistry, Filter, Thermal) are hard-coded **temporarily**; from step 4 the module list comes from the API.
-- **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette). To be aligned with the original SMAYAA demo design once available.
+- **Module menu from the API:** `PlantDataProvider` loads `GET /plants/{id}/modules` for the selected plant; the sidebar's "Modules" section and the Home tiles list them (route `/m/:moduleKey`). Nothing about modules is hard-coded in the web app.
+- **Polling for shared updates:** `PlantDataProvider` polls `GET /plants/{id}/readings/latest` every 5 s (`POLL_INTERVAL_MS`). When the reading id changes (anyone saved), it increments `version` and reloads the alerts; module screens re-fetch when `version` changes. After your own save, `refresh()` triggers this immediately. Data is tagged with its plant id, so switching plants never shows the previous plant's data.
+- **Module screens** (`modules/ModulePage.tsx`): fetch `GET /plants/{id}/modules/{key}` and render each widget through the **registry** (`modules/registry.ts`). The browser never decides statuses; the API sends them on each tile. Unknown widget types render `UnknownWidget` instead of breaking. `ModulePage` is keyed by plant + module, so switching gives a fresh screen.
+- **Autosave and live preview** (owner decision): an editable tile is a text box.
+  - **While typing:** after 400 ms the page calls `POST .../readings/preview` with all current drafts. Tiles (including calculated ones) show the previewed values and statuses; only this user sees them.
+  - **On blur or Enter:** the draft is parsed (`format.parseInput`; empty clears the value). If it differs from the saved value, `POST .../readings` sends **only that field**. The tile shows "Saving…" then "Saved ✓".
+  - **Escape** cancels the draft.
+  - **After a save:** the typed text is kept until the refreshed screen arrives (no flicker), and errors are shown on the tile.
+  - The header shows "Last updated by X at HH:MM".
+- **Alert bar** (`components/AlertBar.tsx`): on every page for users with `alerts.view` and a selected plant. It shows a green "all within range" or a count with the top alerts (↑/↓), plus who updated last. Expanding it shows each alert's limits, affected modules, cause/treatment/precautions, and a "sample guidance – to be reviewed" note when `needs_review`.
+- **Labels:** predicted problems show "Probabilities are demo heuristics, not engineering guarantees."
+- **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette; status colours good/warn/bad/na). To be aligned with the original SMAYAA demo design once the reference files are available.
 
 ## 9. API endpoints (all under `/api/v1`)
 
@@ -441,7 +460,7 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - Step 3 tests (`test_readings`): saving and merging (two users, different fields), no-op saves, validation, clearing values, **history unchanged after a formula change**, preview stores nothing, latest/history filters, permissions (company admin view-only, super admin 403, operator profile), alerts (severity, direction, treatment, fallback, modules affected; a limit change clears an alert; manager and operator see the same), module screens (layout from configuration, Filter/Thermal react to chemistry, insufficient data, **a new calculation appears in a module without code changes**), and the database layer (readings can't be updated/deleted; other companies and the platform see none).
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.
-- **Web:** `npm test` (vitest). `navigation.test.ts` checks the menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`).
+- **Web:** `npm test` (vitest). `navigation.test.ts` checks the fixed menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`); `format.test.ts` checks number formatting, input parsing, range-bar positions and limits text; `modules/modules.test.ts` checks the widget registry covers every API widget type, the unknown-type fallback, and the live-preview tile overlay. (No component rendering tests yet; adding React Testing Library is a later improvement.)
 
 ## 12. Quality gates and CI
 

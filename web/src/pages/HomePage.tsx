@@ -2,9 +2,11 @@ import { Link } from 'react-router'
 
 import { useAuth } from '../auth/useAuth'
 import { menuFor, roleLabel } from '../navigation'
+import { usePlantData } from '../plant/usePlantData'
 
 export function HomePage() {
   const { me, plant } = useAuth()
+  const { modules } = usePlantData()
   if (!me) return null
   const items = menuFor(me.permissions)
 
@@ -31,6 +33,12 @@ export function HomePage() {
 
       <h2>You can open</h2>
       <div className="tile-grid">
+        {modules.map((m) => (
+          <Link key={m.key} to={`/m/${m.key}`} className="tile">
+            <span className="tile__section">Module</span>
+            <span className="tile__label">{m.title}</span>
+          </Link>
+        ))}
         {items.map((item) => (
           <Link key={item.path} to={item.path} className="tile">
             <span className="tile__section">{item.section}</span>

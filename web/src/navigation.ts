@@ -5,17 +5,14 @@ export interface MenuItem {
   path: string
   label: string
   permission: string
-  section: 'Modules' | 'Plant' | 'Administration'
+  section: 'Plant' | 'Administration'
   /** Which build step delivers the real page (shown on the placeholder until then). */
   comingIn: string
 }
 
-// TEMPORARY: the three module entries are listed here only until Step 4, when the list of
-// modules comes from the API (modules are configuration data per company, not code).
+// Fixed pages. The module entries (Water Chemistry, Filter, Thermal, ...) are not listed here:
+// they come from the API per plant, because modules are configuration data (see AppLayout).
 export const MENU: MenuItem[] = [
-  { path: '/water-chemistry', label: 'Water Chemistry', permission: 'modules.view', section: 'Modules', comingIn: 'Step 4' },
-  { path: '/filter', label: 'Filter', permission: 'modules.view', section: 'Modules', comingIn: 'Step 4' },
-  { path: '/thermal', label: 'Thermal', permission: 'modules.view', section: 'Modules', comingIn: 'Step 4' },
   { path: '/limits', label: 'Limits', permission: 'limits.read', section: 'Plant', comingIn: 'Step 5' },
   { path: '/users', label: 'Users', permission: 'users.read', section: 'Administration', comingIn: 'Step 5' },
   { path: '/plants', label: 'Plants', permission: 'plants.manage', section: 'Administration', comingIn: 'Step 5' },
