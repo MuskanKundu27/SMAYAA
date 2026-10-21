@@ -484,6 +484,11 @@ Formulas and rules are small programs written by an admin. A typo could hide eve
 **Who counts as "an operator"?**
 The code never says `if role == "operator"`. The operator-profiles page lists "people at this plant whose role you are allowed to manage". Today that means operators for a manager. If a company later invents a new role, it works without code changes.
 
+**A lesson from the first real use**
+On the live site, someone tried to sign in as `bhfl@1`. Usernames may only contain letters, digits, `.`, `_` and `-`, so that name could never exist. The server already refused such names, but only after the form was sent. Now the form checks the format as you type (an HTML `pattern`) and shows a hint under the box. Checking in the browser is for comfort; the server still checks too.
+
+A detail worth knowing: modern browsers read `pattern` with strict rules, where a plain `-` inside `[...]` is not allowed and must be written `\-`. If the pattern is invalid, the browser silently ignores it, so we tested it before shipping.
+
 **What to learn**
 - Show the user *why* something is read-only (a banner), not just a greyed-out box.
 - Ask "are you sure?" before actions that lock people out (deactivating a user, plant or company).
