@@ -21,7 +21,7 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 3 – Readings and alerts (readings as events, merge on save, preview, alerts, predicted problems, module screens) | Done (API) |
 | 4 – Module renderer (React widget registry, module screens, autosave + live preview, alert bar, polling) | Done (first version; visual design to be aligned with the original demo) |
 | 5 – Management screens (Users, Plants, Limits + plant settings, Operator profiles, Companies, Configuration editors with live tests, Audit log) | Done (first version) |
-| Production deployment (single Ubuntu server, section 14) | Caddy mode deployed and verified on a test server; nginx mode (shared servers) written, not yet run |
+| Production deployment (single Ubuntu server, section 14) | Deployed and verified in both modes: Caddy (fresh server) and nginx (shared server next to another site, custom API port) |
 
 ## 3. Repository layout
 
