@@ -1,7 +1,7 @@
 """The current state of a plant: values, statuses, alerts and predicted problems.
 
 Everything here is *derived* from input values plus the company's current configuration and the
-plant's current limits (CLAUDE brief §7: alerts are derived, not stored). The alert bar, module
+plant's current limits (alerts are derived, not stored). The alert bar, module
 screens and the live preview all use build_state(), so they always agree.
 """
 

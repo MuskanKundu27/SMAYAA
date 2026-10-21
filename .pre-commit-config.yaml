@@ -3,11 +3,11 @@
 repos:
   - repo: local
     hooks:
-      - id: block-private-files
-        name: Block private / secret files
+      - id: block-secret-files
+        name: Block secret files (.env)
         language: fail
-        entry: "Private file must not be committed (see .gitignore):"
-        files: '^(CLAUDE\.md|CLAUDE\.local\.md|docs/WORKLOG\.md|reference/|\.claude/|\.env($|\.(?!example$)))'
+        entry: "Secret file must not be committed (see .gitignore):"
+        files: '(^|/)\.env($|\.(?!example$))'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

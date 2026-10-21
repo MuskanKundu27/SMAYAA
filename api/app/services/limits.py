@@ -1,6 +1,6 @@
 """Plant limits and plant settings.
 
-Who may edit (CLAUDE brief §5 rule 4): a user with `limits.write` (manager) or, only while the
+Who may edit: a user with `limits.write` (manager) or, only while the
 plant has no active manager, a user with `limits.write_without_manager` (company admin).
 "No manager" is checked at request time, never stored as a flag. Plant settings such as the
 clean baseline approach follow the same rule with `plant_settings.write`.

@@ -1,1 +1,1 @@
-"""Templates: shipped bundles of configuration copied into a company (CLAUDE brief §11)."""
+"""Templates: shipped bundles of configuration copied into a company."""

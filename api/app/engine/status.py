@@ -1,4 +1,4 @@
-"""Status of a value against its four limits (CLAUDE brief §9)."""
+"""Status of a value against its four limits."""
 
 from dataclasses import dataclass
 from typing import Literal

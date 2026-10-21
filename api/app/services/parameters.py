@@ -1,4 +1,4 @@
-"""Parameters and formulas (CLAUDE brief §8).
+"""Parameters and formulas.
 
 On save a formula must: parse under the safe whitelist, reference only active parameters (or
 `base`), not reference itself or create a loop, and give a result with sample values.

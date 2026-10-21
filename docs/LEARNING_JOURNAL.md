@@ -13,7 +13,7 @@ The newest entries are at the bottom. If a word is unfamiliar, check the Glossar
 Before writing any code, the project owner wrote a detailed brief describing the product, the users, the rules and the order of work.
 
 **Why**
-Code is expensive to change once it is written. A written plan lets everyone agree on *what* to build before arguing about *how*. It also means a new person (or an AI assistant starting a fresh session) can catch up by reading one document.
+Code is expensive to change once it is written. A written plan lets everyone agree on *what* to build before arguing about *how*. It also means a new person can catch up by reading one document.
 
 **What to learn**
 - Spend time on the plan first. Ten minutes of thinking saves hours of rewriting.
@@ -31,11 +31,11 @@ Code is expensive to change once it is written. A written plan lets everyone agr
 **Why**
 - **Git** records every change to the code, who made it and why. If something breaks, we can see exactly what changed and go back.
 - **GitHub** keeps a copy online, lets several people work together, and can run automatic checks on every change (we will set this up later).
-- **`.gitignore`** tells Git which files must *never* be uploaded. Examples: passwords (`.env` files), downloaded libraries (`node_modules/`, `.venv/`), and private working notes. Uploading a password to GitHub, even once, means it must be considered leaked.
+- **`.gitignore`** tells Git which files must *never* be uploaded. Examples: passwords (`.env` files), downloaded libraries (`node_modules/`, `.venv/`), and local working notes. Uploading a password to GitHub, even once, means it must be considered leaked.
 - **`.gitattributes`** fixes "line endings". Windows ends each line of text with two invisible characters (CRLF); Linux uses one (LF). Our app will run on Linux servers, and scripts with Windows line endings break there. This file makes Git always store LF.
 
 **What to learn**
-- Before every commit, run `git status` and check that no secret or private file is listed.
+- Before every commit, run `git status` and check that no secret file is listed.
 - Write commit messages that explain the change, e.g. "Docs: native local setup prerequisites".
 
 ---
@@ -141,7 +141,7 @@ This step has no visible features. It builds the "workshop" that every later fea
 - **ruff** checks Python style and common bugs, and formats code.
 - **mypy** (strict mode) checks that types match: for example, it caught that we passed arguments to `JSONResponse` in the wrong order.
 - **pytest** runs the tests: they also caught the same bug, because a 404 page crashed.
-- **pre-commit** runs checks automatically on every `git commit`. It also **refuses to commit secret or private files**.
+- **pre-commit** runs checks automatically on every `git commit`. It also **refuses to commit secret files** like `.env`.
 - **GitHub Actions (CI)** runs everything again on GitHub for every push, on a clean machine with a fresh database.
 **Why:** People forget things; machines don't. Bugs found by a tool in seconds are far cheaper than bugs found by a customer.
 **Learn:** Real lesson from today: two independent tools (tests and type checker) both caught a real bug before anyone ran the app.

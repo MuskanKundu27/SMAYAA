@@ -1,6 +1,6 @@
 """Creating, listing and deactivating users.
 
-Rules (CLAUDE brief §5):
+Rules:
 - You may only manage users whose role you hold a `users.manage:<role>` permission for, and
   whose role rank is lower than yours (the "rank rule").
 - Scope: company-wide users manage their own company; plant users only their own plants;
