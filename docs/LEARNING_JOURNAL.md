@@ -411,6 +411,45 @@ Asking every 5 seconds is simple and reliable, and good enough for water chemist
 
 ---
 
+## Entry 12 – Getting ready to go live (2026-10-21)
+
+**What we did**
+- **Picked a place to run the app.** We used a small free-tier cloud server (Ubuntu Linux) instead of a hosting service like Vercel. Vercel is great for websites, but our app also needs a Python API and a PostgreSQL database that run all the time, which a normal server handles simply.
+- **Logged in with a key, not a password.** The cloud provider gave us a key file (`.pem`). SSH uses it to prove who we are. A key is much harder to steal or guess than a password. We locked the file so only our own Windows account can read it.
+- **Wrote one setup script** (`deploy/setup-server.sh`) that turns a fresh server into a running SMAYAA: database, API, web server, HTTPS and backups. Every step first checks whether it is already done, so running it twice is harmless.
+- **Added a command to create the first platform admin** (`create_platform_admin`). In production we never create the demo accounts, so someone has to create the very first admin. The command asks for the password without showing it on screen and checks it against the password rules.
+- **Wrote small helper scripts** to update the API (`update-api.sh`, which takes a backup first), upload the web app from a developer PC (`push-web.ps1`), and back up the database every night (`backup.sh`).
+
+**How the pieces fit together on the server**
+```
+Browser ──HTTPS──► Caddy ──/api/...──► our Python API (only reachable from inside the server) ──► PostgreSQL
+                     └── other pages ──► the built React files
+```
+- **Caddy** is the front door. It shows the web pages, forwards API calls to Python, and gets a free HTTPS certificate by itself.
+- **systemd** is Linux's "keep this program running" manager. If the API crashes or the server restarts, systemd starts it again.
+- **cron** runs the backup every night at a fixed time.
+
+**A free web address without buying a domain**
+`smayaa.3-110-175-240.sslip.io` works because the free service sslip.io answers "that's 3.110.175.240" for any name containing that IP with dashes. A proper domain can replace it later without changing any code.
+
+**Hosting vs deploying**
+- *Hosting* is the place: a computer that is always on and reachable from the internet.
+- *Deploying* is the act: putting your app on that computer, configuring it and starting it.
+
+**Lessons from today**
+- **"Connection timed out" means nobody answered.** On a company server we tried first, our SSH attempts timed out before a username was even checked. A firewall was silently dropping us. Wrong passwords give "Permission denied"; silence points to network rules. We proved our own network was fine by connecting to the same port on another server.
+- **Check before you touch a shared server.** That first server already ran another website. Before deploying anywhere, look at what is running and ask the owner in writing what must stay untouched.
+- **Never paste passwords or key files into chats, tickets or code.** IP addresses, usernames and port numbers are fine to share. Anything that lets someone *get in* is not.
+- **Build where it is comfortable.** The server has little memory, so we build the React app on a developer PC and upload only the finished files.
+- **Secrets are generated on the server.** The setup script creates random database passwords and the token secret directly on the server and stores them in a file only the app can read. They never pass through GitHub or a chat.
+
+**What to learn**
+- Production is mostly about *boring reliability*: things restart by themselves, backups happen without anyone remembering, and secrets stay in one protected place.
+- Scripts that can be run twice safely ("idempotent") make fixing mistakes easy: change the script and run it again.
+- Keep internal services (database, API) reachable only from inside the server, and open just the ports the public needs (80 and 443, plus SSH for yourself).
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -469,3 +508,18 @@ Asking every 5 seconds is simple and reliable, and good enough for water chemist
 | **Debounce** | Waiting for a short pause (e.g. in typing) before doing something, instead of doing it on every key press. |
 | **Live preview** | Showing the effect of a change before it is saved. |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |
+| **Hosting** | The place an app runs: a computer that is always on and reachable from the internet. |
+| **Deploying** | Putting an app onto a server, configuring it and starting it. |
+| **SSH** | A secure way to open a terminal on a remote computer. |
+| **SSH key (`.pem`)** | A file that proves who you are to a server, used instead of a password. Keep it private. |
+| **Port** | A numbered "door" on a computer; each network program listens on one (SSH 22, web 80/443). |
+| **Firewall / security group** | Rules that decide which ports and addresses may connect to a server. |
+| **Connection timed out** | Your request got no answer at all, usually because a firewall silently dropped it. |
+| **HTTPS / TLS certificate** | Encryption between browser and server; the certificate proves the site is who it claims to be. |
+| **Let's Encrypt** | A free service that issues HTTPS certificates. |
+| **Reverse proxy** | A front server (here Caddy) that receives all visits and forwards each one to the right program. |
+| **systemd** | Linux's service manager: starts programs at boot and restarts them if they crash. |
+| **cron** | Linux's scheduler for running commands at fixed times. |
+| **Idempotent** | Safe to run more than once; the second run changes nothing that is already right. |
+| **Swap** | Disk space used as extra memory when RAM is full; slower, but prevents crashes. |
+| **Free tier** | A cloud provider's free allowance (time, credits or usage) for new accounts. |

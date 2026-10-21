@@ -36,7 +36,7 @@ USERS = [
 ]
 
 
-def _owner_url() -> str:
+def owner_url() -> str:
     url = os.environ.get("MIGRATION_DATABASE_URL") or dotenv_values(
         REPO_ROOT / ".env", encoding="utf-8-sig"
     ).get("MIGRATION_DATABASE_URL")
@@ -116,7 +116,7 @@ def sample_reading(db: Session, plant: Plant, entered_by: str) -> Reading:
 def main() -> None:
     if get_settings().environment == Environment.PRODUCTION:
         sys.exit("Refusing to seed demo data: ENVIRONMENT=production")
-    with Session(create_engine(_owner_url())) as db:
+    with Session(create_engine(owner_url())) as db:
         created = seed(db)
     print("Created:", ", ".join(created) if created else "nothing (already seeded)")
     print(f"Demo users: {', '.join(u[0] for u in USERS)} - password {DEMO_PASSWORD}")

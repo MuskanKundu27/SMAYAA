@@ -1,0 +1,31 @@
+# SMAYAA web server. setup-server.sh replaces __HOST__ and installs this as /etc/caddy/Caddyfile.
+# Caddy gets and renews the free Let's Encrypt certificate for the host automatically.
+
+__HOST__ {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# The API runs locally on port 8000 and is never exposed directly.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# Single-page app: unknown paths load index.html and React decides what to show.
+	handle {
+		root * /var/www/smayaa
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/smayaa.log
+	}
+}
