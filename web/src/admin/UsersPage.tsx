@@ -199,7 +199,14 @@ function NewUserForm({ roles, isPlatform, plants, companies, onCreated }: NewUse
       )}
       <label className="field">
         <span>Username</span>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
+        <input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          pattern="[A-Za-z0-9._\-]{3,50}"
+          title="3–50 letters, digits, dots, underscores or hyphens (no spaces or @)"
+        />
+        <small className="muted">Letters, digits, . _ - only (no spaces or @).</small>
       </label>
       <label className="field">
         <span>Full name</span>

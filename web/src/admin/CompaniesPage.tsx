@@ -135,7 +135,14 @@ function NewCompanyForm({ onCreated }: { onCreated: (created: CompanyCreated) =>
       </p>
       <label className="field">
         <span>Admin username</span>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
+        <input
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          pattern="[A-Za-z0-9._\-]{3,50}"
+          title="3–50 letters, digits, dots, underscores or hyphens (no spaces or @)"
+        />
+        <small className="muted">Letters, digits, . _ - only (no spaces or @).</small>
       </label>
       <label className="field">
         <span>Admin full name</span>
