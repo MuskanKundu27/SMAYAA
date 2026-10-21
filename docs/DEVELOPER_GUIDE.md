@@ -17,7 +17,8 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 0 – Foundation (API/web skeletons, DB roles, tooling, CI) | Done |
 | 1 – Identity and tenancy (login, roles/permissions, companies, plants, users, RLS, audit) | Done (API) |
 | 1b – Web app shell (login page, role-based menu, plant switcher, placeholder pages) | Done |
-| 2 – Configuration engine (parameters, formulas, limits, rules) | Not started |
+| 2 – Configuration engine (safe evaluator, parameters, formulas, limits, treatments, rules, modules, template) | Done (API) |
+| 3 – Readings and alerts | Not started |
 
 ## 3. Repository layout
 
@@ -40,14 +41,21 @@ api/                      Backend (FastAPI, Python 3.12)
     db/                   base (declarative Base), session (engine + get_db),
                           tenant (TenantContext → Postgres RLS settings)
     models/               SQLAlchemy models: tenancy (Company, Plant), identity (User, Role,
-                          RolePermission, RoleAssignment, OperatorProfile, RefreshToken), audit
+                          RolePermission, RoleAssignment, OperatorProfile, RefreshToken), audit,
+                          config (Parameter, Limit, PlantSetting, Treatment, Rule, Module)
     auth/                 principal (Principal), provider (AuthProvider, PasswordAuthProvider),
                           dependencies (get_principal, CurrentPrincipal, require)
-    services/             Business rules: auth, companies, plants, users, audit
-    schemas/              Pydantic request/response models
-    routers/              HTTP endpoints: health, auth (+ /me), companies, plants, users
+    engine/               Pure calculation code (no DB): evaluator (safe expressions),
+                          status (limits → good/warn/bad), calculation (order, calculate, rules)
+    templates/default.py  The default template (parameters, treatments, rules, modules) as data
+    services/             Business rules: auth, companies, plants, users, audit, parameters,
+                          rules, modules (+ treatments), templates, limits (+ plant settings),
+                          config_common (shared helpers)
+    schemas/              Pydantic request/response models (config.py has the widget types)
+    routers/              HTTP endpoints: health, auth (+ /me), companies, plants, users,
+                          config (company configuration), limits (plant limits + settings)
     scripts/seed_dev.py   Demo data for local development
-  migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS
+  migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS
   scripts/                create_dev_db.sql, grant_app_role.sql, docker-init-db.sh
   tests/                  pytest: conftest (test DB setup), helpers (data builders), test_*.py
 web/                      Frontend (React 19 + TypeScript + Vite + react-router 7)
@@ -199,7 +207,7 @@ Code checks **permission strings**, never role names: `principal.require("plants
 | plant_settings.write, operator_profiles.manage | | | ✓ | |
 | modules.view, alerts.view | | ✓ | ✓ | ✓ |
 
-(Permissions for readings, limits, modules and alerts are seeded now; the endpoints that use them come in later steps.)
+(`limits.*`, `plant_settings.write` and `config.manage` are used since step 2. `readings.*`, `modules.view`, `alerts.view` and `operator_profiles.manage` are seeded; their endpoints come in steps 3–5.)
 
 **User management rule** (`services/users.py`): to create or deactivate a user with role R you need `users.manage:R` **and** R's rank must be lower than yours, **and** the target must be in your scope (company-wide users: own company; plant users: own plants; platform: company admins of any company). Deactivation sets `is_active = false`, records who/when, revokes refresh tokens, and returns a warning when a plant is left with no active user holding `limits.write` ("no manager").
 
@@ -226,11 +234,58 @@ Code checks **permission strings**, never role names: `principal.require("plants
    | audit_log | platform or own company | insert only (append-only) |
    | roles, role_permissions | everyone (no RLS) | nobody (privileges revoked) |
    | refresh_tokens | no RLS (hashes only, not tenant data) | |
+   | parameters, treatments, rules, modules | platform, or own company | **platform only** (super admin configures) |
+   | limits, plant_settings | own company + visible plant (**no platform clause**) | same |
 
-   Future plant data (readings etc.) will **not** have a platform clause, so the super admin can never read it.
+   Plant data (limits, plant settings, and readings from step 3) has **no** platform clause, so the super admin can never read it.
 
 ### 8.6 Audit log
 `services/audit.record(...)` adds an `audit_log` row in the same transaction as the change (company/plant/user create, update, deactivate). `audit.snapshot()` produces JSON-safe before/after values.
+
+### 8.6a Calculation engine (`app/engine/`)
+Pure functions, no database, so they are easy to test and reuse.
+- **`evaluator.py`:** `parse(source, functions=None)` turns text into a checked `Expression`. It uses Python's `ast` parser, then rejects everything not on a whitelist:
+  - **Allowed:** numbers, strings (for helper arguments), names, `+ - * / **`, comparisons (chains allowed), `and/or/not`, lists, and calls to `min max abs round sqrt log exp if_else` (plus rule helpers when parsing rules).
+  - **Rejected:** attributes, indexing, lambdas, comprehensions, keyword arguments, unknown functions, more than 500 characters, more than 200 nodes.
+
+  `Expression.references` lists every parameter key used, including string arguments to helpers like `off('ph')`. `evaluate(expr, variables, functions)` **never raises for data problems**: a missing value, division by zero, `sqrt` of a negative, overflow, or an exponent above 100 all give `None` ("No data"). `if_else(cond, a, b)` evaluates only the chosen branch. **`eval`/`exec` are never used.**
+- **`status.py`:** `status_of(value, Limits)` returns `good` / `warn` (+ direction) / `bad` (+ direction) / `na`, exactly per the brief (inclusive bounds; no limits = always good). `SEVERITY_POINTS` gives 20 for warn and 40 for bad.
+- **`calculation.py`:**
+  - `calculation_order(formulas)` sorts formulas topologically (Kahn's algorithm) and raises `CycleError` on loops.
+  - `calculate(inputs, formulas, base)` computes every calculated key in that order. `base` is the reserved name for the plant's clean baseline approach.
+  - `RuleContext` provides the rule helpers `value`, `status`, `off`, `sev` and `count_off`. A missing value counts as **not off**, so no data never raises a prediction.
+  - `parse_rule` and `evaluate_rule` work like `parse` and `evaluate`, with those helpers.
+
+### 8.6b Company configuration (super admin)
+All under `/companies/{company_id}/...`, permission `config.manage`, platform database context. Services: `parameters.py`, `rules.py`, `modules.py` (modules + treatments), `templates.py`; shared helpers in `config_common.py`.
+- **Parameters:** `kind` is `input` (typed) or `calculated` (has `formula`). The **key never changes** after creation (readings will store values by key). Keys must match `^[a-z][a-z0-9_]{0,39}$` and must not be reserved (`base`, function and helper names, `and/or/not`, …). Each parameter can have a `sample_value` and **default limits**.
+- **Formula validation on save** (`parameters.validate_formula`):
+  1. The formula passes the whitelist.
+  2. It doesn't reference its own parameter.
+  3. Every reference is an **active** parameter or `base`.
+  4. It creates no loop (`calculation_order`).
+  5. It gives a result with the sample values (inputs without a sample use 1.0; `base` uses the company default).
+
+  Failures return **422** with `details[0].field = "formula"` and a human-readable message.
+- **Versioning:** changing a formula increments `formula_version`. Changing an expression of a rule increments `rule.version`.
+- **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
+- **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used).
+- **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`), `value_tiles`, `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
+- **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
+
+### 8.6c Templates (`app/templates/default.py`)
+- The default template is plain Python data: 26 parameters (18 inputs, 8 calculated, with units, sample values and default limits), 20 treatments (flagged `needs_review`), 5 rules (FLT-P01/P02/P03, TH-P01/P02), 3 modules (Water Chemistry, Filter, Thermal), and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
+- `services/templates.apply_template(db, company, template, actor_id)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits.
+- `POST /companies` applies the default template automatically. `POST /companies/{id}/apply-template` re-applies it (adds anything missing). The dev seed applies it to Demo Power Ltd.
+- `tests/test_template.py` checks that the template is valid on its own: references, no loops, ordered limits, rules evaluate, and widgets reference existing items.
+
+### 8.6d Plant limits and settings
+`services/limits.py`, endpoints under `/plants/{plant_id}/...`; the plant must be in the caller's scope (else 404).
+- **Effective limits** (`plant_limits(db, plant_id)`): the plant's own `limits` row if present, otherwise the parameter's default limits, otherwise none. Step 3 uses the same function for statuses and alerts.
+- **Who may edit:** `limits.write` (manager), **or** `limits.write_without_manager` (company admin) **only while `plant_has_active_manager()` is false**, checked at request time. `GET` returns `has_manager` and `can_edit`, so the UI knows. `PUT` takes a list of `{parameter_key, warn_min, good_min, good_max, warn_max}`; ordering is enforced by Pydantic and by a database check constraint. `DELETE /limits/{key}` reverts to the default.
+- **Plant settings:** known settings live in `PLANT_SETTING_TYPES` (currently `clean_baseline_approach: float`). Each value is the plant's own value, else the company default. Editing uses the same rule with `plant_settings.write` (manager) or the no-manager fallback.
 
 ### 8.7 Web ↔ API
 In development the browser talks only to Vite (:5173), which proxies `/api` to FastAPI (:8000). In Docker/production nginx does the same. One origin keeps the refresh cookie simple.
@@ -260,10 +315,25 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | GET | `/users` | users.read | Users in the caller's scope, with roles and plant ids |
 | POST | `/users` | users.manage:&lt;role&gt; | `{username, full_name, password, role, plant_id?, company_id?}` |
 | DELETE | `/users/{id}` | users.manage:&lt;role&gt; | Deactivates; response `{user, warnings}` |
+| GET / POST | `/companies/{id}/parameters` | config.manage | List all (incl. inactive) / create (validated) |
+| PATCH | `/companies/{id}/parameters/{key}` | config.manage | Update; `is_active: false` refused (409) while used |
+| POST | `/companies/{id}/formulas/test` | config.manage | `{formula, values?, base?}` → `{ok, result, references, error}` |
+| GET / PUT | `/companies/{id}/treatments` | config.manage | List / upsert by `parameter_key` + `direction` |
+| GET / POST | `/companies/{id}/rules` | config.manage | List / create |
+| PATCH | `/companies/{id}/rules/{code}` | config.manage | Update (version +1 when an expression changes) |
+| POST | `/companies/{id}/rules/test` | config.manage | `{condition_expr, probability_expr?, values, base?}` → `{ok, matched, probability, references, error}` |
+| GET / POST | `/companies/{id}/modules` | config.manage | List / create (layout validated; `warnings` for missing references) |
+| PATCH | `/companies/{id}/modules/{key}` | config.manage | Update title, order, layout, active |
+| POST | `/companies/{id}/apply-template?template=default` | config.manage | Add missing template items → `{template, added}` |
+| GET | `/plants/{id}/limits` | limits.read | Effective limits + `has_manager`, `can_edit` |
+| PUT | `/plants/{id}/limits` | limits.write, or company admin without manager | `{items: [...]}` |
+| DELETE | `/plants/{id}/limits/{key}` | same | Revert one parameter to its default limits |
+| GET | `/plants/{id}/settings` | limits.read | e.g. `clean_baseline_approach` with `source` |
+| PUT | `/plants/{id}/settings` | plant_settings.write, or company admin without manager | `{values: {clean_baseline_approach: 4.5}}` |
 
 Password policy: at least 10 characters, a letter and a digit, must not contain the username. Usernames: 3–50 of `A–Z a–z 0–9 . _ -`, stored lower-case, unique across the platform.
 
-## 10. Data model (migration 0002)
+## 10. Data model (migrations 0002–0003)
 
 ```
 companies         id uuid PK, name unique, is_active, settings jsonb, created_at
@@ -280,6 +350,22 @@ operator_profiles (user_id, plant_id) PK, company_id, visible_modules[] NULL, vi
                   can_edit_readings, show_alerts          (table only; no endpoints yet. No row = all allowed)
 refresh_tokens    id, user_id, family_id, token_hash unique, expires_at, revoked_at, created_at
 audit_log         id, company_id NULL, actor_id, action, entity, entity_id, before jsonb, after jsonb, created_at
+
+-- 0003 configuration
+parameters        id, company_id, key (unique per company), label, unit, group_key, kind (input|calculated),
+                  formula (required iff calculated), formula_version, precision, sort_order, is_active,
+                  sample_value, default_warn_min/good_min/good_max/warn_max (all or none)
+limits            (plant_id, parameter_id) PK, company_id, warn_min, good_min, good_max, warn_max
+                  (check: ordered), updated_by, updated_at
+plant_settings    (plant_id, key) PK, company_id, value jsonb, updated_by, updated_at
+treatments        id, company_id, parameter_id, direction (high|low) (unique per parameter+direction),
+                  cause, treatment, precautions, needs_review, updated_at
+rules             id, company_id, code (unique per company), title, kind (predicted_problem),
+                  condition_expr, probability_expr, action_text, affects_modules[], is_active, version,
+                  sort_order, created_at, updated_at
+modules           id, company_id, key (unique per company), title, sort_order, is_active,
+                  layout jsonb {"widgets": [...]}, created_at, updated_at
+companies.settings["plant_setting_defaults"]   company-wide defaults for plant settings
 ```
 
 All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids cannot be guessed.
@@ -287,7 +373,8 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 ## 11. Testing
 
 - `tests/conftest.py`: the app runs against `smayaa_test` as **`smayaa_app`**, so RLS is active in tests. The schema is migrated once per run (as the owner). After each test, tenant tables are truncated.
-- `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator), `login`. Test data is written as the owner role.
+- `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator; manager and operator at plant A only), `with_template` (applies the default template), `login`. Test data is written as the owner role.
+- Step 2 tests: `test_engine` (evaluator incl. unsafe expressions, statuses, calculation order, rule helpers), `test_template` (the template is valid; companies get it; re-applying adds nothing), `test_config_api` (formula validation, cycles, reserved keys, versioning, deactivation blocked by dependents, rules, modules, treatments, tenant users get 403), `test_limits` (manager edits, operator 403, company-admin fallback, plant/company isolation, settings, RLS).
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.
 - **Web:** `npm test` (vitest). `navigation.test.ts` checks the menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`).
@@ -307,9 +394,10 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - Check permissions (`principal.require("x.y")`), never role names. The single named role in code is `COMPANY_OWNER_ROLE` in `services/companies.py` (the role given to a new company's first admin).
 - Out-of-scope resources return **404**, not 403, so their existence is not revealed. Missing permission returns 403.
 - Business rules live in `services/`; routers only translate HTTP ↔ service calls.
-- Every change to companies, plants or users writes an audit entry in the same transaction.
-- Delete = deactivate for users, plants and companies.
-- Formulas are evaluated only by the safe evaluator (coming in step 2); never `eval`/`exec`.
+- Every change to companies, plants, users or configuration writes an audit entry in the same transaction.
+- Delete = deactivate for users, plants, companies, parameters, rules and modules. (A plant's own limit row may be removed to fall back to the default.)
+- Formulas and rules are evaluated only by `app/engine/evaluator.py`; never `eval`/`exec`.
+- New tenant tables: add `company_id` (+ `plant_id`), enable RLS in the same migration, and add them to `TENANT_TABLES` in `tests/conftest.py`.
 - Type hints everywhere; `mypy --strict` and `ruff` must pass.
 - Migrations: autogenerate, then read and fix the file; hand-written SQL (RLS) goes in the same migration; downgrades must work (CI runs up → down → up).
 - Keep this guide and `LEARNING_JOURNAL.md` updated with every change.

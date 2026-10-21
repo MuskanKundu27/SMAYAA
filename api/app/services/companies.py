@@ -9,7 +9,9 @@ from app.models import Company, Role, User
 from app.schemas.common import PageParams
 from app.schemas.tenancy import CompanyCreate, CompanyUpdate
 from app.services import audit
+from app.services.templates import apply_template
 from app.services.users import create_user_record
+from app.templates.default import DEFAULT_TEMPLATE
 
 COMPANY_FIELDS = ["name", "is_active"]
 
@@ -57,6 +59,8 @@ def create_company(db: Session, principal: Principal, data: CompanyCreate) -> tu
         db, principal, username=data.admin.username, full_name=data.admin.full_name,
         password=data.admin.password, role=role, company_id=company.id, plant_id=None,
     )  # fmt: skip
+    # Every new company starts from a copy of the standard configuration.
+    apply_template(db, company, DEFAULT_TEMPLATE, principal.user_id)
     db.commit()
     return company, admin
 

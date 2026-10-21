@@ -31,10 +31,28 @@ def record(
     after: dict[str, Any] | None = None,
 ) -> None:
     """Add an audit entry to the current transaction (committed with the change itself)."""
+    record_for(
+        db, actor.user_id, action, entity, entity_id,
+        company_id=company_id, before=before, after=after,
+    )  # fmt: skip
+
+
+def record_for(
+    db: Session,
+    actor_id: uuid.UUID | None,
+    action: str,
+    entity: str,
+    entity_id: uuid.UUID | str | None,
+    *,
+    company_id: uuid.UUID | None,
+    before: dict[str, Any] | None = None,
+    after: dict[str, Any] | None = None,
+) -> None:
+    """Same as record(), for code that runs without a logged-in user (e.g. the seed script)."""
     db.add(
         AuditLog(
             company_id=company_id,
-            actor_id=actor.user_id,
+            actor_id=actor_id,
             action=action,
             entity=entity,
             entity_id=str(entity_id) if entity_id is not None else None,

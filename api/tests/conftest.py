@@ -40,7 +40,8 @@ os.environ["ENVIRONMENT"] = "test"
 get_settings.cache_clear()
 
 TENANT_TABLES = (
-    "audit_log, refresh_tokens, operator_profiles, role_assignments, users, plants, companies"
+    "audit_log, refresh_tokens, operator_profiles, limits, plant_settings, treatments, rules,"
+    " modules, parameters, role_assignments, users, plants, companies"
 )
 
 

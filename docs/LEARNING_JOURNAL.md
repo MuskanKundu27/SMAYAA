@@ -259,6 +259,71 @@ The menu is built from the permission list the server sends (`GET /me`). Hiding 
 
 ---
 
+## Entry 9 – Step 2: the configuration engine (2026-10-21)
+
+This step teaches SMAYAA everything it must know about a company **before** anyone types a reading: what is measured, how values are calculated, what counts as "good", what to do when something is wrong, and what each screen shows. All of it is **data in the database**, so one customer can be different from another without anybody changing code.
+
+### 9.1 Parameters: the things a plant measures
+**What:** Each company has its own list of parameters: pH, hardness, supply temperature, filter pressures, and so on. A parameter is either **typed in** by people, or **calculated** from others with a formula (e.g. Range = `tr - ts`).
+**Why:** One customer may measure chloride, another may not. If parameters lived in code, every customer request would need a programmer. As rows in a table, the super admin just adds one.
+**Detail worth knowing:** a parameter's short **key** (`hard`) can never be renamed, because stored readings will be labelled with it. Labels and units can change freely.
+
+### 9.2 A calculator that cannot be tricked
+**What:** Formulas are text typed by a person, for example `ph - 7.6 + (hard - 400) / 800`. We wrote a small calculator that reads the formula with Python's own parser and then **checks every piece** against an allow-list: numbers, names, `+ - * / **`, comparisons, `and/or/not`, and a few functions like `min`, `max`, `sqrt`. Anything else is refused before it runs.
+**Why not just use Python's `eval()`?** `eval` runs *any* Python code. A formula like `__import__('os').system('delete everything')` would actually run on our server. Our calculator refuses it with "Unknown function '__import__'". Our tests try about 20 nasty tricks like this and check they're all refused.
+**Also:**
+- Missing data or dividing by zero gives "no result" instead of crashing the page.
+- Huge powers like `9 ** 9 ** 9` are refused, so nobody can freeze the server with one formula.
+
+**Learn:** Never run text from users as code. Parse it and allow only what you understand.
+
+### 9.3 Checking formulas before saving
+**What:** When the super admin saves a formula, we check:
+1. Is it valid and safe?
+2. Does every name in it exist and is it switched on?
+3. Does it use itself?
+4. Does it create a **loop**, like A = B + 1 while B = A − 1?
+5. Does it give a number with typical sample values?
+
+**Why:** A broken formula found at save time costs nothing. Found later, it means wrong numbers on a customer's screen.
+**How loops are found:** we sort the formulas so each one comes after the ones it needs (a "topological sort"). If at some point no formula is ready, the rest must be waiting on each other in a loop.
+
+### 9.4 Versions instead of rewriting history
+**What:** Each time a formula changes, its **version number** goes up.
+**Why:** Next step, every saved reading will remember which formula version calculated it. Then if someone improves the LSI formula tomorrow, last month's numbers don't silently change.
+
+### 9.5 Switching off instead of deleting
+**What:** Parameters, rules and modules are never deleted, only switched off. And you **can't** switch off a parameter that a formula or rule still uses. The answer tells you exactly which ones, e.g. "`ts` is still used by: parameter 'appr', parameter 'heat', parameter 'range'".
+**Why:** Deleting would break old readings and other formulas. Telling the user *why* they can't do something is much friendlier than a vague error.
+
+### 9.6 Limits per plant, with a safety net
+**What:** Each plant can have its own four limits per parameter (warning min, good min, good max, warning max). If a plant hasn't set any, the company's default limits apply.
+**The rule:** the **manager** edits limits. The **company admin** may edit them **only while the plant has no manager**. We don't store a "no manager" flag; we check the real situation every time. So the moment a new manager is added, the company admin automatically loses that right again.
+**Learn:** Calculate facts from the source of truth instead of storing a copy that can go out of date.
+
+### 9.7 Rules for predicted problems
+**What:** Problems like "TH-P02 Fouling" are rules written with the same calculator, plus helpers such as `off('hard')` (is hardness out of range?) and `count_off(['lsi','hard','alk','mic'])` (how many are out of range?). Each rule has a condition, a probability formula and a recommended action.
+**Why:** Later, trained machine-learning models can replace these rules **using the same codes**, and the screens won't need to change.
+**Honesty:** the probabilities are simple demo rules, not engineering guarantees, and the treatment texts are samples that a water-treatment engineer must review. Both are marked in the data.
+
+### 9.8 Screens described as data
+**What:** Each module (Water Chemistry, Filter, Thermal) is stored as a list of **widgets**: "input tiles for the chemistry group", "KPI cards for dp, rem, bw", "predicted problems FLT-P01..P03". We check that every widget has a known type and the right fields.
+**Why:** Adding a new calculation to the Filter screen is now a data change. Our tests do exactly that: add a "cycles" calculation and put it on the Filter module, with no code change.
+
+### 9.9 Templates: a starter kit for new customers
+**What:** The standard setup (26 parameters, 20 treatments, 5 rules, 3 modules) is a **template**. Every new company gets its own copy automatically. Applying it again only adds what's missing; it never overwrites a company's changes.
+**Why:** Customers start with something useful on day one, and changing one customer never affects another.
+**Testing the template itself:** a test checks the template is valid on its own: every formula and rule references real parameters, there are no loops, the limits are in order, and the sample values give the expected answers (e.g. Range = 8 °C, Approach = 5 °C).
+
+### 9.10 Real lessons from today
+Two tests failed the first time, and **both times the code was right and the test was wrong**:
+- We expected `True` to be rejected by the calculator, but it's a harmless value. We changed the test.
+- We expected the sample data to trigger a filter problem, but hardness isn't on the filter rule's list, so it correctly didn't.
+
+When a test fails, don't automatically "fix" the code: first ask which one is wrong, the code or your expectation.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -301,4 +366,12 @@ The menu is built from the permission list the server sends (`GET /me`). Hiding 
 | **SPA (single-page app)** | A web app that loads once and then changes screens without full page reloads (React). |
 | **Route** | A mapping from an address like `/limits` to the screen shown for it. |
 | **Test double / mock** | A fake replacement (e.g. a fake server) used in tests to control what happens. |
+| **Parameter** | A named value a plant measures or calculates (pH, hardness, approach…). |
+| **Formula** | Text describing how to calculate a parameter from others, e.g. `tr - ts`. |
+| **Parser / AST** | A parser turns text into a tree of pieces (the Abstract Syntax Tree) that a program can inspect. |
+| **Allow-list (whitelist)** | Only the listed things are permitted; everything else is refused. Safer than a block-list. |
+| **`eval`** | A Python function that runs any text as code. Dangerous with user input; we never use it. |
+| **Topological sort** | Ordering items so each comes after the items it depends on. |
+| **Template** | A ready-made bundle of configuration copied into each new company. |
+| **Widget** | A building block of a screen (input tiles, KPI cards, a chart…). |
 | **Event (record)** | A row that is added and never changed, describing something that happened at a point in time. |

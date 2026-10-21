@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.core.config import REPO_ROOT, Environment, get_settings
 from app.core.security import hash_password
 from app.models import Company, Plant, RoleAssignment, User
+from app.services.templates import apply_template
+from app.templates.default import DEFAULT_TEMPLATE
 
 DEMO_PASSWORD = "Demo@12345"  # noqa: S105  (development only; meets the password policy)
 
@@ -75,6 +77,11 @@ def seed(db: Session) -> list[str]:
             )
         )
         created.append(f"user {username} ({role})")
+
+    # Standard configuration (parameters, rules, modules, ...). Only adds what is missing.
+    added = apply_template(db, company, DEFAULT_TEMPLATE, actor_id=None)
+    if any(added.values()):
+        created.append("template " + ", ".join(f"{n} {k}" for k, n in added.items() if n))
     db.commit()
     return created
 

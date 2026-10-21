@@ -78,6 +78,16 @@ class Tenant:
         return self.company.id
 
 
+def with_template(db: Session, company: Company) -> Company:
+    """Give a test company the default configuration (as a real new company gets)."""
+    from app.services.templates import apply_template
+    from app.templates.default import DEFAULT_TEMPLATE
+
+    apply_template(db, company, DEFAULT_TEMPLATE, actor_id=None)
+    db.commit()
+    return company
+
+
 def make_tenant(db: Session, prefix: str) -> Tenant:
     company = make_company(db, f"{prefix.title()} Ltd")
     plant_a = make_plant(db, company, f"{prefix.title()} Plant A")
