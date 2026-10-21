@@ -12,6 +12,8 @@ export interface AuthState {
   selectPlant: (plantId: string) => void
   login: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  /** Fetch GET /me again, e.g. after creating a plant so it appears in the plant list. */
+  reloadMe: () => Promise<void>
   can: (permission: string) => boolean
 }
 

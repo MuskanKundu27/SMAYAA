@@ -20,7 +20,7 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 2 – Configuration engine (safe evaluator, parameters, formulas, limits, treatments, rules, modules, template) | Done (API) |
 | 3 – Readings and alerts (readings as events, merge on save, preview, alerts, predicted problems, module screens) | Done (API) |
 | 4 – Module renderer (React widget registry, module screens, autosave + live preview, alert bar, polling) | Done (first version; visual design to be aligned with the original demo) |
-| 5 – Management screens (Users, Limits, Configuration, Audit log) | Not started |
+| 5 – Management screens (Users, Plants, Limits + plant settings, Operator profiles, Companies, Configuration editors with live tests, Audit log) | Done (first version) |
 | Production deployment (single Ubuntu server, section 14) | Caddy mode deployed and verified on a test server; nginx mode (shared servers) written, not yet run |
 
 ## 3. Repository layout
@@ -54,14 +54,15 @@ api/                      Backend (FastAPI, Python 3.12)
     engine/               Pure calculation code (no DB): evaluator (safe expressions),
                           status (limits → good/warn/bad), calculation (order, calculate, rules)
     templates/default.py  The default template (parameters, treatments, rules, modules) as data
-    services/             Business rules: auth, companies, plants, users, audit, parameters,
+    services/             Business rules: auth, companies, plants, users, audit (+ listing), operator_profiles, parameters,
                           rules, modules (+ treatments), templates, limits (+ plant settings),
                           config_common (shared helpers), readings, plant_state (values,
                           statuses, alerts, predicted problems), plant_views (module screens)
-    schemas/              Pydantic request/response models (config.py has the widget types)
+    schemas/              Pydantic request/response models (config.py has the widget types;
+                          admin.py: operator profiles, audit entries)
     routers/              HTTP endpoints: health, auth (+ /me), companies, plants, users,
                           config (company configuration), limits (plant limits + settings),
-                          readings (readings, alerts, plant modules)
+                          readings (readings, alerts, plant modules), operator_profiles, audit
     scripts/seed_dev.py   Demo data for local development
     scripts/create_platform_admin.py  Creates the first platform admin (all environments)
   migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS,
@@ -74,6 +75,14 @@ web/                      Frontend (React 19 + TypeScript + Vite + react-router 
     api/client.ts         fetch wrapper: in-memory access token, auto refresh on 401, ApiError
     api/types.ts          API response types (Me, Tile, WidgetView, ModuleView, Alert, ...)
     api/plant.ts          Plant endpoints: modules, module view, alerts, latest, save, preview
+    api/admin.ts          Management endpoints: users, plants, companies, limits, settings, operator
+                          profiles, configuration (parameters, formulas, treatments, rules, modules,
+                          template), audit log
+    admin/                Management screens: UsersPage, PlantsPage, LimitsPage (+ plant settings),
+                          OperatorProfilesPage, CompaniesPage, AuditLogPage, config/ (ConfigurationPage
+                          with Parameters, Treatments, Rules, Modules, Template tabs); useLoad.ts
+                          (load + reload + errorMessage), ui.tsx (ErrorText, Notice, Loading,
+                          StatusBadge), limits.ts (limit draft parsing)
     auth/AuthContext.tsx  AuthProvider: session restore on load, login/logout, selected plant
     auth/useAuth.ts       useAuth() hook and AuthState type
     plant/                PlantDataProvider (module list, alerts, polling → `version`), usePlantData
@@ -83,9 +92,10 @@ web/                      Frontend (React 19 + TypeScript + Vite + react-router 
     modules/registry.ts   Widget registry: widget type → component (+ UnknownWidget fallback)
     components/           TileCard, StatusPill, RangeBar, AlertBar
     format.ts             Display helpers (numbers, times, limits text, range bar, input parsing)
-    navigation.ts         Fixed menu pages and the permission each needs (modules come from API)
+    navigation.ts         Fixed menu pages and the permission each needs (modules come from API);
+                          manageableRoles (from users.manage:<role>), roleNeedsPlant
     layout/AppLayout.tsx  Sidebar (modules from API + fixed pages), top bar, alert bar
-    pages/                LoginPage, HomePage, PlaceholderPage (+ NoAccess, NotFound)
+    pages/                LoginPage, HomePage, StatusPages (NoAccess, NotFound)
     *.test.ts             vitest tests
 ```
 
@@ -366,6 +376,14 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **After a save:** the typed text is kept until the refreshed screen arrives (no flicker), and errors are shown on the tile.
   - The header shows "Last updated by X at HH:MM".
 - **Alert bar** (`components/AlertBar.tsx`): on every page for users with `alerts.view` and a selected plant. It shows a green "all within range" or a count with the top alerts (↑/↓), plus who updated last. Expanding it shows each alert's limits, affected modules, cause/treatment/precautions, and a "sample guidance – to be reviewed" note when `needs_review`.
+- **Management screens** (`admin/`), one per fixed menu entry; `App.tsx` maps each path in `MENU` to its page (`PAGES`):
+  - **Users:** list in scope; create form offers only the roles from the caller's `users.manage:<role>` permissions (plant for plant roles; company for a platform admin creating a company admin); deactivate with confirmation, showing the API's warnings (e.g. "plant has no manager").
+  - **Plants** (company admin): create, rename, deactivate/reactivate; calls `reloadMe()` afterwards so the plant switcher and forms see the change.
+  - **Limits** (selected plant): table grouped by parameter group with the four thresholds and the source (this plant / company default); editable only when the API says `can_edit` (manager, or company admin while there is no manager, with a banner explaining it); "Use default" per row; plant settings (clean baseline approach) below.
+  - **Operator profiles** (manager): per operator, "all modules" or a chosen list, may enter readings, sees alerts; save or reset to defaults.
+  - **Companies** (platform admin): create with the first company admin (gets the default template), deactivate/reactivate, link to Configuration.
+  - **Configuration** (platform admin, `?company=&tab=` in the URL): Parameters & formulas (editor with live formula test on sample values, default limits, deactivate), Treatments (pick parameter + direction, needs-review flag), Rules (editor with module checkboxes and a test panel with editable input values), Modules (title, order, active, layout as validated JSON, warnings for missing references), Template (apply default; adds only what is missing).
+  - **Audit log:** newest first, filter by company (platform) and entity, paging, changed fields per entry.
 - **Labels:** predicted problems show "Probabilities are demo heuristics, not engineering guarantees."
 - **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette; status colours good/warn/bad/na). To be aligned with the original SMAYAA demo design once the reference files are available.
 
@@ -409,6 +427,10 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | GET | `/plants/{id}/alerts` | alerts.view | `{reading, alerts}` for the alert bar |
 | GET | `/plants/{id}/modules` | modules.view | Modules the user may open |
 | GET | `/plants/{id}/modules/{key}` | modules.view + readings.read | Widgets with their data (see 8.6g) |
+| GET | `/plants/{id}/operator-profiles` | operator_profiles.manage | Lower-ranked users at the plant (that the caller may manage) with their profile; `is_default` when no restrictions are stored |
+| PUT | `/plants/{id}/operator-profiles/{user_id}` | operator_profiles.manage | `{visible_modules: [...] | null, can_edit_readings, show_alerts}` (`null` = all modules, incl. future ones; unknown modules → 422) |
+| DELETE | `/plants/{id}/operator-profiles/{user_id}` | operator_profiles.manage | Remove restrictions (back to defaults) |
+| GET | `/audit-log` | audit.read | Newest first, paginated; `entity=`; `company_id=` (platform users only). Non-platform users see their own company only. Actor shown as name, "SMAYAA platform" (outside the viewer's company) or "System" |
 
 Password policy: at least 10 characters, a letter and a digit, must not contain the username. Usernames: 3–50 of `A–Z a–z 0–9 . _ -`, stored lower-case, unique across the platform.
 
@@ -460,9 +482,10 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator; manager and operator at plant A only), `with_template` (applies the default template), `login`. Test data is written as the owner role.
 - Step 2 tests: `test_engine` (evaluator incl. unsafe expressions, statuses, calculation order, rule helpers), `test_template` (the template is valid; companies get it; re-applying adds nothing), `test_config_api` (formula validation, cycles, reserved keys, versioning, deactivation blocked by dependents, rules, modules, treatments, tenant users get 403), `test_limits` (manager edits, operator 403, company-admin fallback, plant/company isolation, settings, RLS).
 - Step 3 tests (`test_readings`): saving and merging (two users, different fields), no-op saves, validation, clearing values, **history unchanged after a formula change**, preview stores nothing, latest/history filters, permissions (company admin view-only, super admin 403, operator profile), alerts (severity, direction, treatment, fallback, modules affected; a limit change clears an alert; manager and operator see the same), module screens (layout from configuration, Filter/Thermal react to chemistry, insufficient data, **a new calculation appears in a module without code changes**), and the database layer (readings can't be updated/deleted; other companies and the platform see none).
+- Step 5 tests (`test_operator_profiles_and_audit`): manager lists/restricts/resets operators and it is enforced on modules and saving; unknown modules rejected; other plants, self and other companies refused; operators and company admins get 403; audit log scoped per company, platform sees all and filters; plant users get 403. `test_create_platform_admin`: the CLI command.
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.
-- **Web:** `npm test` (vitest). `navigation.test.ts` checks the fixed menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`); `format.test.ts` checks number formatting, input parsing, range-bar positions and limits text; `modules/modules.test.ts` checks the widget registry covers every API widget type, the unknown-type fallback, and the live-preview tile overlay. (No component rendering tests yet; adding React Testing Library is a later improvement.)
+- **Web:** `npm test` (vitest). `navigation.test.ts` checks the fixed menu per role; `api/client.test.ts` checks token storage, refresh-and-retry, shared refresh, and session end (with a mocked `fetch`); `format.test.ts` checks number formatting, input parsing, range-bar positions and limits text; `admin/limits.test.ts` checks limit-draft parsing (order, empty rows); `modules/modules.test.ts` checks the widget registry covers every API widget type, the unknown-type fallback, and the live-preview tile overlay. (No component rendering tests yet; adding React Testing Library is a later improvement.)
 
 ## 12. Quality gates and CI
 

@@ -2,10 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
-from app.models import AuditLog
+from app.models import AuditLog, Company, User
+from app.schemas.admin import AuditEntryOut
+from app.schemas.common import PageParams
 
 
 def snapshot(obj: object, fields: list[str]) -> dict[str, Any]:
@@ -60,3 +63,58 @@ def record_for(
             after=after,
         )
     )
+
+
+def list_entries(
+    db: Session,
+    principal: Principal,
+    page: PageParams,
+    *,
+    company_id: uuid.UUID | None = None,
+    entity: str | None = None,
+) -> tuple[list[AuditEntryOut], int]:
+    """Newest first. Platform users see every company (optionally filtered); everyone else
+    only their own company (row-level security enforces the same)."""
+    principal.require("audit.read")
+    query = (
+        select(AuditLog, Company.name, User.username, User.full_name)
+        .outerjoin(Company, Company.id == AuditLog.company_id)
+        .outerjoin(User, User.id == AuditLog.actor_id)
+    )
+    if not principal.is_platform:
+        query = query.where(AuditLog.company_id == principal.company_id)
+    elif company_id is not None:
+        query = query.where(AuditLog.company_id == company_id)
+    if entity:
+        query = query.where(AuditLog.entity == entity)
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = db.execute(
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(page.limit)
+        .offset(page.offset)
+    ).all()
+    entries = []
+    for entry, company_name, username, full_name in rows:
+        if entry.actor_id is None:
+            actor = "System"
+        elif username is None:
+            # The actor exists but is outside this viewer's company (a platform admin).
+            actor = "SMAYAA platform"
+        else:
+            actor = full_name or username
+        entries.append(
+            AuditEntryOut(
+                id=entry.id,
+                created_at=entry.created_at,
+                company_id=entry.company_id,
+                company_name=company_name,
+                actor_id=entry.actor_id,
+                actor_name=actor,
+                action=entry.action,
+                entity=entry.entity,
+                entity_id=entry.entity_id,
+                before=entry.before,
+                after=entry.after,
+            )
+        )
+    return entries, total

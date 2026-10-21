@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { menuFor, roleLabel } from './navigation'
+import { manageableRoles, menuFor, roleLabel } from './navigation'
 
 const labels = (permissions: string[]) => menuFor(permissions).map((item) => item.label)
 
@@ -22,6 +22,10 @@ describe('menuFor', () => {
     expect(labels(superAdmin)).toEqual(['Users', 'Companies', 'Configuration', 'Audit log'])
   })
 
+  it('gives a manager with profile rights the operator profiles page', () => {
+    expect(labels(['limits.read', 'operator_profiles.manage'])).toEqual(['Limits', 'Operator profiles'])
+  })
+
   it('shows nothing without permissions', () => {
     expect(menuFor([])).toEqual([])
   })
@@ -31,5 +35,15 @@ describe('roleLabel', () => {
   it('translates known roles and passes unknown ones through', () => {
     expect(roleLabel('company_admin')).toBe('Company admin')
     expect(roleLabel('custom_role')).toBe('custom_role')
+  })
+})
+
+describe('manageableRoles', () => {
+  it('reads the roles from users.manage permissions', () => {
+    expect(manageableRoles(['users.read', 'users.manage:manager', 'users.manage:operator'])).toEqual([
+      'manager',
+      'operator',
+    ])
+    expect(manageableRoles(['users.read'])).toEqual([])
   })
 })

@@ -458,6 +458,40 @@ A company server may already run other websites. Our setup script only *adds* it
 
 ---
 
+## Entry 13 – Step 5: the management screens (2026-10-21)
+
+**What we did**
+Until now, setting up a company, its plants and its users needed the API's test page. Now each role has real screens:
+- **Users:** see the people in your area, add new ones, deactivate them. The form only offers roles you are allowed to create: a manager can add operators, a company admin managers and operators, the platform admin company admins.
+- **Plants** (company admin): add, rename, deactivate.
+- **Limits:** the four thresholds per parameter for the selected plant, plus the plant's clean baseline approach. Only editable when the server says so: by the manager, or by the company admin while the plant has no manager (a yellow banner explains this).
+- **Operator profiles** (manager): for each operator, which modules they see, whether they may enter readings, and whether they see alerts.
+- **Companies** (platform admin): add a company together with its first company admin. Every new company gets the standard setup automatically.
+- **Configuration** (platform admin): edit a company's parameters and formulas, treatments, rules and module screens, with **Test** buttons that show the result before anything is saved.
+- **Audit log:** who changed what and when, with a filter.
+
+We also added two small API pieces the screens needed: operator profiles, and a way to list the audit log.
+
+**Why the screens ask the server instead of deciding themselves**
+The Limits screen does not work out who may edit. It shows a `can_edit` answer from the server. If the browser had its own copy of that rule, the two could disagree, and the browser can always be tampered with. The server is the only place a rule is decided and enforced; the screen just explains it.
+
+**One small helper for loading data**
+Almost every screen does the same thing: load something, show "Loading…", show an error if it fails, and load again after a change. We wrote that once (`useLoad`) instead of copying it into every page. Less code means fewer places for bugs.
+
+**Test before you save**
+Formulas and rules are small programs written by an admin. A typo could hide every alert. So the editors have a **Test** button: the server runs the formula on sample values and answers "result 8.0, uses tr and ts", or explains the mistake. Nothing is stored until you press Save, and the server checks everything again on save.
+
+**Who counts as "an operator"?**
+The code never says `if role == "operator"`. The operator-profiles page lists "people at this plant whose role you are allowed to manage". Today that means operators for a manager. If a company later invents a new role, it works without code changes.
+
+**What to learn**
+- Show the user *why* something is read-only (a banner), not just a greyed-out box.
+- Ask "are you sure?" before actions that lock people out (deactivating a user, plant or company).
+- When many screens repeat the same pattern, make one small shared helper.
+- Every screen in this step is a convenience. The real protection is that the server checks permission and scope on every request (we tested that an operator calling the Users or Audit API gets "403 Forbidden").
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -531,3 +565,7 @@ A company server may already run other websites. Our setup script only *adds* it
 | **Idempotent** | Safe to run more than once; the second run changes nothing that is already right. |
 | **Swap** | Disk space used as extra memory when RAM is full; slower, but prevents crashes. |
 | **Free tier** | A cloud provider's free allowance (time, credits or usage) for new accounts. |
+| **Read-only** | Visible but not changeable by this user. |
+| **Upsert** | "Update or insert": change the item if it exists, otherwise create it. |
+| **Pagination** | Showing a long list in pages (e.g. 50 at a time) instead of all at once. |
+| **Hook (React)** | A reusable function that gives a component state or behaviour, e.g. `useLoad`. |

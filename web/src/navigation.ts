@@ -6,19 +6,23 @@ export interface MenuItem {
   label: string
   permission: string
   section: 'Plant' | 'Administration'
-  /** Which build step delivers the real page (shown on the placeholder until then). */
-  comingIn: string
 }
 
 // Fixed pages. The module entries (Water Chemistry, Filter, Thermal, ...) are not listed here:
 // they come from the API per plant, because modules are configuration data (see AppLayout).
 export const MENU: MenuItem[] = [
-  { path: '/limits', label: 'Limits', permission: 'limits.read', section: 'Plant', comingIn: 'Step 5' },
-  { path: '/users', label: 'Users', permission: 'users.read', section: 'Administration', comingIn: 'Step 5' },
-  { path: '/plants', label: 'Plants', permission: 'plants.manage', section: 'Administration', comingIn: 'Step 5' },
-  { path: '/companies', label: 'Companies', permission: 'companies.read', section: 'Administration', comingIn: 'Step 5' },
-  { path: '/configuration', label: 'Configuration', permission: 'config.manage', section: 'Administration', comingIn: 'Step 5' },
-  { path: '/audit-log', label: 'Audit log', permission: 'audit.read', section: 'Administration', comingIn: 'Step 5' },
+  { path: '/limits', label: 'Limits', permission: 'limits.read', section: 'Plant' },
+  {
+    path: '/operator-profiles',
+    label: 'Operator profiles',
+    permission: 'operator_profiles.manage',
+    section: 'Plant',
+  },
+  { path: '/users', label: 'Users', permission: 'users.read', section: 'Administration' },
+  { path: '/plants', label: 'Plants', permission: 'plants.manage', section: 'Administration' },
+  { path: '/companies', label: 'Companies', permission: 'companies.read', section: 'Administration' },
+  { path: '/configuration', label: 'Configuration', permission: 'config.manage', section: 'Administration' },
+  { path: '/audit-log', label: 'Audit log', permission: 'audit.read', section: 'Administration' },
 ]
 
 export function menuFor(permissions: readonly string[]): MenuItem[] {
@@ -35,4 +39,17 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function roleLabel(roleKey: string): string {
   return ROLE_LABELS[roleKey] ?? roleKey
+}
+
+const MANAGE_PREFIX = 'users.manage:'
+
+/** Roles this user may create and deactivate (from `users.manage:<role>` permissions). */
+export function manageableRoles(permissions: readonly string[]): string[] {
+  return permissions.filter((p) => p.startsWith(MANAGE_PREFIX)).map((p) => p.slice(MANAGE_PREFIX.length))
+}
+
+/** Whether a new user of this role belongs to a company (picked by a platform admin) or a plant.
+ *  The API decides from the role's scope; this only chooses which field the form shows. */
+export function roleNeedsPlant(roleKey: string): boolean {
+  return roleKey !== 'company_admin'
 }

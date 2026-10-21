@@ -34,7 +34,7 @@ USER_FIELDS = ["username", "full_name", "is_active", "company_id"]
 MANAGE_PREFIX = "users.manage:"
 
 
-def _manageable_role_keys(principal: Principal) -> list[str]:
+def manageable_role_keys(principal: Principal) -> list[str]:
     return [
         p.removeprefix(MANAGE_PREFIX) for p in principal.permissions if p.startswith(MANAGE_PREFIX)
     ]
@@ -152,7 +152,7 @@ def list_users(db: Session, principal: Principal, page: PageParams) -> tuple[lis
         query = query.where(
             User.id.in_(
                 select(RoleAssignment.user_id).where(
-                    RoleAssignment.role_key.in_(_manageable_role_keys(principal))
+                    RoleAssignment.role_key.in_(manageable_role_keys(principal))
                 )
             )
         )

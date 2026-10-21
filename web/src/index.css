@@ -777,3 +777,340 @@ h2 {
   justify-content: space-between;
   font-size: 0.72rem;
 }
+
+/* --- Management screens (users, plants, limits, profiles, companies, configuration, audit) --- */
+.field select,
+.field textarea {
+  font: inherit;
+  color: var(--text);
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field select:focus,
+.field textarea:focus {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+
+.field small {
+  font-size: 0.8rem;
+}
+
+.field--inline {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.field--inline select {
+  min-width: 260px;
+}
+
+.button--small {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.85rem;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.notice {
+  padding: 0.7rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 0.8rem;
+  border: 1px solid #c8d8f8;
+  background: var(--blue-soft);
+}
+
+.notice--warn {
+  border-color: #f0d9a8;
+  background: #fff7e6;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.9rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-grid__title {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.form-grid__wide {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.form-grid__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.form-grid__actions .form-error {
+  margin-right: auto;
+}
+
+.editor {
+  border-color: var(--blue);
+}
+
+.table-card {
+  padding: 0;
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.55rem 0.8rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.85rem;
+  background: #fafbfd;
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.row--inactive td {
+  color: var(--muted);
+}
+
+.row--changed td {
+  background: #fffbea;
+}
+
+.group-row td {
+  background: var(--bg);
+  color: var(--navy);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.cell-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cell-actions > * + * {
+  margin-left: 0.4rem;
+}
+
+.cell-text {
+  max-width: 28rem;
+}
+
+.cell-input {
+  font: inherit;
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.cell-input--number {
+  width: 6.5rem;
+  text-align: right;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0.8rem 0;
+  background: var(--bg);
+}
+
+.sticky-actions .form-error {
+  margin-right: auto;
+}
+
+.profile-list {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+}
+
+.profile-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.profile-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 0.5rem;
+}
+
+.profile-card__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.checks {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 0.9rem;
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.checks legend {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0 0.3rem;
+}
+
+.checks__indent {
+  margin-left: 1.4rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+  overflow-x: auto;
+}
+
+.tab {
+  font: inherit;
+  border: none;
+  background: none;
+  padding: 0.6rem 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.tab--active {
+  color: var(--navy);
+  border-bottom-color: var(--blue);
+  font-weight: 600;
+}
+
+.formula-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.formula-input,
+.code-input {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9rem;
+}
+
+.formula-row .formula-input {
+  flex: 1;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.limit-inputs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.test-box summary,
+details summary {
+  cursor: pointer;
+  color: var(--blue);
+}
+
+.test-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin: 0.8rem 0;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.filters .field select {
+  min-width: 200px;
+}
+
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.change-list {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+code {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--bg);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+  .limit-inputs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .field--inline {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

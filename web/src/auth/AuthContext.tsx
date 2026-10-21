@@ -86,9 +86,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       selectPlant,
       login,
       logout,
+      reloadMe: loadMe,
       can: (permission) => permissions.has(permission),
     }
-  }, [status, me, plantId, selectPlant, login, logout])
+  }, [status, me, plantId, selectPlant, login, logout, loadMe])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
