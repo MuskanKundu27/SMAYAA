@@ -71,8 +71,10 @@ SELECT 'CREATE DATABASE smayaa OWNER smayaa_owner'
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'smayaa') \gexec
 SQL
   sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d smayaa -f "$APP/api/scripts/grant_app_role.sql"
-  umask 077
-  cat > "$APP/.env" <<ENV
+  # Subshell: the private umask applies to the secrets file only, not to later steps.
+  (
+    umask 077
+    cat > "$APP/.env" <<ENV
 ENVIRONMENT=production
 DATABASE_URL=postgresql+psycopg://smayaa_app:${APP_PW}@127.0.0.1:5432/smayaa
 MIGRATION_DATABASE_URL=postgresql+psycopg://smayaa_owner:${OWNER_PW}@127.0.0.1:5432/smayaa
@@ -80,6 +82,7 @@ JWT_SECRET=$(openssl rand -hex 32)
 CORS_ORIGINS=https://${HOST}
 LOG_LEVEL=INFO
 ENV
+  )
   chown smayaa:smayaa "$APP/.env"
   chmod 600 "$APP/.env"
 fi
@@ -104,6 +107,8 @@ chmod 755 "$WEB"
 step "Caddy site for https://$HOST"
 sed "s/__HOST__/$HOST/g" "$APP/deploy/Caddyfile" > /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+# validate runs as root and may create the log file; Caddy itself runs as user "caddy".
+chown -R caddy:caddy /var/log/caddy
 systemctl reload caddy || systemctl restart caddy
 
 step "Nightly database backup (02:30 UTC, keeps 14 days, same server)"
