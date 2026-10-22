@@ -11,7 +11,7 @@ from app.engine.calculation import (
     parse_rule,
     statuses_for,
 )
-from app.engine.evaluator import ExpressionError, evaluate, parse
+from app.engine.evaluator import RESERVED_NAMES, ExpressionError, evaluate, parse
 from app.engine.status import Limits, Status, status_of
 
 
@@ -194,3 +194,108 @@ def make_context() -> RuleContext:
 )
 def test_rule_helpers(source: str, expected: object) -> None:
     assert evaluate_rule(parse_rule(source), make_context()) == expected
+
+
+# --- Time functions (history) ------------------------------------------------------------------
+
+from collections.abc import Mapping, Sequence  # noqa: E402
+from datetime import UTC, datetime, timedelta  # noqa: E402
+
+from app.engine.calculation import parse_formula  # noqa: E402
+from app.engine.history import History, TimeFunctions  # noqa: E402
+
+T0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def at(hours: float) -> datetime:
+    return T0 + timedelta(hours=hours)
+
+
+def time_fns(
+    points: Sequence[tuple[float, Mapping[str, float]]], now: float, current: Mapping[str, float]
+) -> TimeFunctions:
+    history = History(now=at(now), points=[(at(h), v) for h, v in points])
+    return TimeFunctions(history, current)
+
+
+def test_change_and_rate_use_the_oldest_reading_in_the_window() -> None:
+    fns = time_fns([(0, {"dp": 0.2}), (12, {"dp": 0.4}), (18, {"dp": 0.5})], 24, {"dp": 0.6})
+
+    assert fns.change("dp", 24) == pytest.approx(0.4)
+    assert fns.rate("dp", 24) == pytest.approx(0.4 / 24)
+    assert fns.change("dp", 12) == pytest.approx(0.2)  # oldest in window is t=12
+    assert fns.avg("dp", 24) == pytest.approx((0.2 + 0.4 + 0.5 + 0.6) / 4)
+
+
+def test_time_functions_without_enough_history_give_none() -> None:
+    fns = time_fns([], 24, {"dp": 0.6})
+    assert fns.change("dp", 24) is None
+    assert fns.rate("dp", 24) is None
+    assert fns.total("dp", 24) is None
+    assert TimeFunctions(None, {"dp": 1.0}).functions()["rate"]("dp", 24) is None
+
+
+def test_total_integrates_over_time() -> None:
+    fns = time_fns([(0, {"q": 10}), (2, {"q": 10})], 4, {"q": 20})
+    assert fns.total("q", 24) == pytest.approx(10 * 2 + 15 * 2)  # m³/h over hours → m³
+
+
+def test_event_functions_find_cleanings() -> None:
+    points = [
+        (0, {"clean": 0, "dp": 0.9}),
+        (1, {"clean": 1, "dp": 0.9}),
+        (2, {"clean": 0, "dp": 0.3}),
+        (10, {"clean": 1, "dp": 1.0}),
+        (11, {"clean": 0, "dp": 0.2}),
+    ]
+    fns = time_fns(points, 15, {"clean": 0, "dp": 0.25})
+
+    assert fns.events("clean", 24) == 2
+    assert fns.events("clean", 6) == 1  # the start at t=10 is 5 h before now (t=15)
+    assert fns.events("clean", 4) == 0
+    assert fns.hours_since("clean") == 5
+    assert fns.before_event("dp", "clean") == 0.3  # last reading before the t=10 start
+    assert fns.after_event("dp", "clean") == 0.2  # first reading after it ended
+
+
+def test_after_event_is_none_while_still_cleaning() -> None:
+    fns = time_fns([(0, {"clean": 0, "dp": 1}), (1, {"clean": 1, "dp": 1})], 2, {"clean": 1})
+    assert fns.after_event("dp", "clean") is None
+
+
+def test_formulas_with_time_functions_calculate_from_history() -> None:
+    history = History(now=at(24), points=[(at(0), {"pin": 2.0, "pout": 1.8, "dp": 0.2})])
+    formulas = {
+        "dp": parse_formula("pin - pout"),
+        "dprate": parse_formula("rate('dp', 24) * 24"),
+    }
+    values = calculate({"pin": 2.4, "pout": 1.8}, formulas, history=history)
+    assert values["dprate"] == pytest.approx(0.4)
+
+
+def test_history_hours_and_required_references() -> None:
+    formula = parse_formula("rate('dp', 24) + events('clean', 168)")
+    assert formula.history_hours == 720  # events look back 30 days
+    rule = parse_rule("off('resid') and coalesce(rate('appr', 6), 0) > 0 and fan > 1")
+    assert rule.required == {"resid", "fan"}  # 'appr' only inside coalesce/rate
+    assert rule.references == {"resid", "appr", "fan"}
+
+
+def test_coalesce_takes_the_first_known_value() -> None:
+    expr = parse_formula("coalesce(load, 100) / 100")
+    assert evaluate(expr, {"load": None}) == 1.0
+    assert evaluate(expr, {"load": 50.0}) == 0.5
+
+
+def test_time_function_names_are_reserved() -> None:
+    assert {"rate", "change", "events", "coalesce"} <= RESERVED_NAMES
+
+
+def test_trends_need_readings_spanning_part_of_the_window() -> None:
+    # Two autosaves a few seconds apart must not produce a huge "rate".
+    fns = time_fns([(23.999, {"dp": 0.2})], 24, {"dp": 0.6})
+    assert fns.rate("dp", 24) is None
+    assert fns.change("dp", 24) is None
+    # 3 hours apart covers more than 10 % of a 24 h window.
+    fns = time_fns([(21, {"dp": 0.3})], 24, {"dp": 0.6})
+    assert fns.rate("dp", 24) == pytest.approx(0.1)

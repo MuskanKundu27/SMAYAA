@@ -146,7 +146,13 @@ def update_module(
 
 @router.post("/apply-template", response_model=TemplateApplied)
 def apply_template(
-    company_id: uuid.UUID, principal: CurrentPrincipal, db: DbSession, template: str = "default"
+    company_id: uuid.UUID,
+    principal: CurrentPrincipal,
+    db: DbSession,
+    template: str = "default",
+    update_existing: bool = False,
 ) -> TemplateApplied:
-    """Add whatever the template has and the company is missing. Existing items are kept."""
-    return templates.apply_template_endpoint(db, principal, company_id, template)
+    """Add whatever the template has and the company is missing. Existing items are kept,
+    unless `update_existing=true`: then the template's own parameters, rules and modules are
+    also updated to the latest version (overwriting edits to them; audited)."""
+    return templates.apply_template_endpoint(db, principal, company_id, template, update_existing)

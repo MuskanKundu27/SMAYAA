@@ -1,5 +1,6 @@
 """Readings (autosave with merge), alerts, predicted problems and module screens."""
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -242,7 +243,8 @@ def test_alert_carries_severity_direction_modules_and_treatment(
     assert hard["unit"] == "ppm"
     assert hard["cause"].startswith("Hard make-up water")
     assert hard["needs_review"] is True  # template text is a sample
-    assert set(hard["modules"]) == {"water_chemistry", "thermal"}
+    # Fouling (TH-P02) uses hardness and affects Thermal and Filter.
+    assert set(hard["modules"]) == {"water_chemistry", "thermal", "filter"}
     assert body["alerts"][0]["severity"] == "high"  # most severe first
     assert body["reading"]["changed_keys"] == ["hard"]
 
@@ -288,7 +290,11 @@ def test_manager_and_operator_see_the_same_alerts(client: TestClient, acme: Tena
 def test_modules_list_comes_from_configuration(client: TestClient, acme: Tenant) -> None:
     response = client.get(f"{base(acme)}/modules", headers=login(client, "acme-operator"))
 
-    assert [m["title"] for m in response.json()] == ["Water Chemistry", "Filter", "Thermal"]
+    assert [m["title"] for m in response.json()] == [
+        "Water Chemistry",
+        "Side-Stream Filtration",
+        "Thermal Efficiency",
+    ]
 
 
 def test_water_chemistry_shows_editable_inputs_and_calculated_values(
@@ -336,7 +342,7 @@ def test_predictions_need_data(client: TestClient, acme: Tenant) -> None:
 
     problems = next(w for w in view["widgets"] if w["type"] == "predicted_problems")
     assert problems["problems"] == []
-    assert problems["insufficient_rules"] == ["TH-P01", "TH-P02"]
+    assert problems["insufficient_rules"] == [f"TH-P0{i}" for i in range(1, 7)]
 
 
 def test_inactive_parameters_degrade_to_insufficient_data(
@@ -345,14 +351,14 @@ def test_inactive_parameters_degrade_to_insufficient_data(
     first_reading(client, acme)
     make_user(owner_db, "root", "super_admin")
     client.patch(
-        f"/api/v1/companies/{acme.company_id}/parameters/bw",
+        f"/api/v1/companies/{acme.company_id}/parameters/tssout",
         json={"is_active": False},
         headers=login(client, "root"),
     )
 
     view = module(client, acme, "filter")
 
-    assert tiles(view)["bw"]["insufficient_data"] is True
+    assert tiles(view)["tssout"]["insufficient_data"] is True
     assert tiles(view)["dp"]["value"] == pytest.approx(0.6)  # the rest still works
 
 
@@ -407,3 +413,29 @@ def test_rls_hides_readings_from_other_companies_and_the_platform(
         with Session(app_engine) as session:
             set_tenant_context(session, context)
             assert session.execute(text("SELECT count(*) FROM readings")).scalar() == 0
+
+
+def test_trend_kpis_and_predictions_use_the_plant_history(
+    client: TestClient, acme: Tenant, owner_db: Session
+) -> None:
+    # 12 hours ago the filter ΔP was 0.3 bar; now it is 0.6 bar, so the filter is loading at
+    # 0.6 bar/day and normal loading (FLT-P01) is predicted with a time to clean.
+    earlier = {**SAMPLE_INPUTS, "pin": 2.1}
+    owner_db.add(
+        Reading(
+            company_id=acme.company_id, plant_id=acme.plant_a.id,
+            recorded_at=datetime.now(UTC) - timedelta(hours=12), source="seed",
+            input_values=earlier, calculated_values={"dp": 0.3}, formula_versions={},
+        )
+    )  # fmt: skip
+    owner_db.commit()
+    first_reading(client, acme)  # today's full set (ΔP 0.6)
+
+    view = module(client, acme, "filter")
+    kpis = tiles(view)
+    problems = next(w for w in view["widgets"] if w["type"] == "predicted_problems")
+
+    assert kpis["dprate"]["value"] == pytest.approx(0.6, rel=0.01)
+    assert kpis["ttc"]["value"] == pytest.approx(24, rel=0.02)  # (1.2 - 0.6) / 0.6 per day
+    assert "FLT-P01" in [p["code"] for p in problems["problems"]]
+    assert "FLT-P05" in problems["insufficient_rules"]  # no cleaning recorded yet

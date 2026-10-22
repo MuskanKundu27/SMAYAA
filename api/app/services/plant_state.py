@@ -6,16 +6,24 @@ screens and the live preview all use build_state(), so they always agree.
 """
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.engine.calculation import RuleContext, calculate, evaluate_rule, parse_rule
+from app.engine.calculation import (
+    RuleContext,
+    calculate,
+    evaluate_rule,
+    history_hours,
+    parse_rule,
+)
 from app.engine.evaluator import Expression, ExpressionError
+from app.engine.history import History
 from app.engine.status import Limits, Status, status_of
-from app.models import Module, Parameter, Plant, Rule, Treatment
+from app.models import Module, Parameter, Plant, Reading, Rule, Treatment
 from app.schemas.config import LimitValues
 from app.schemas.readings import Alert, PredictedProblem, Tile
 from app.services.config_common import active_parameters, parsed_formulas
@@ -38,6 +46,7 @@ class PlantState:
     values: dict[str, float | None]  # inputs + calculated (current formulas)
     statuses: dict[str, Status]
     base: float | None
+    history: History | None = None  # earlier readings, for the time functions in rules
 
     def tile(self, key: str, editable: bool = False) -> Tile:
         p = self.params.get(key)
@@ -65,19 +74,60 @@ def _as_float(value: object) -> float | None:
     return None
 
 
-def build_state(db: Session, plant: Plant, inputs: Mapping[str, object]) -> PlantState:
+HISTORY_MAX_POINTS = 5000  # newest readings loaded for the time functions
+
+
+def _active_rule_expressions(db: Session, company_id: object) -> Iterable[Expression]:
+    rules = db.scalars(select(Rule).where(Rule.company_id == company_id, Rule.is_active.is_(True)))
+    for rule in rules:
+        for source in (rule.condition_expr, rule.probability_expr):
+            try:
+                yield parse_rule(source)
+            except ExpressionError:
+                continue
+
+
+def load_history(db: Session, plant: Plant, hours: float, now: datetime) -> History | None:
+    """Readings of the plant from the last `hours` before `now` (oldest first), with their
+    stored input and calculated values. None when nothing needs history."""
+    if hours <= 0:
+        return None
+    rows = db.execute(
+        select(Reading.recorded_at, Reading.input_values, Reading.calculated_values)
+        .where(
+            Reading.plant_id == plant.id,
+            Reading.recorded_at < now,
+            Reading.recorded_at >= now - timedelta(hours=hours),
+        )
+        .order_by(Reading.recorded_at.desc())
+        .limit(HISTORY_MAX_POINTS)
+    ).all()
+    points = [(t, {**(inputs or {}), **(calculated or {})}) for t, inputs, calculated in rows]
+    points.reverse()
+    return History(now=now, points=points)
+
+
+def build_state(
+    db: Session, plant: Plant, inputs: Mapping[str, object], now: datetime | None = None
+) -> PlantState:
+    """Values, statuses and limits for these inputs. `now` is the moment they belong to: the
+    latest reading's time for live screens, or the current time for a new save/preview.
+    Time functions (change, rate, ...) look at the plant's readings before `now`."""
     params = active_parameters(db, plant.company_id)
     input_values = {
         key: _as_float(inputs.get(key)) for key, p in params.items() if p.kind == "input"
     }
     base = _as_float(plant_setting(db, plant, BASELINE_SETTING))
+    formulas = parsed_formulas(params.values())
+    hours = history_hours([*formulas.values(), *_active_rule_expressions(db, plant.company_id)])
+    history = load_history(db, plant, hours, now or datetime.now(UTC))
     values: dict[str, float | None] = {
         **input_values,
-        **calculate(input_values, parsed_formulas(params.values()), base),
+        **calculate(input_values, formulas, base, history),
     }
     limits = {key: lim for key, (lim, _) in plant_limits(db, plant.id).items()}
     statuses = {key: status_of(values.get(key), limits.get(key)) for key in params}
-    return PlantState(plant, params, limits, values, statuses, base)
+    return PlantState(plant, params, limits, values, statuses, base, history)
 
 
 # --- Which modules does a parameter affect? ----------------------------------------------------
@@ -206,9 +256,9 @@ class RuleResults:
 
 
 def predicted_problems(db: Session, state: PlantState) -> RuleResults:
-    """Evaluate every active rule. A rule whose inputs are missing or inactive is reported as
-    insufficient data instead of guessing."""
-    context = RuleContext(state.values, state.statuses)
+    """Evaluate every active rule. A rule whose current inputs are missing or inactive, or whose
+    trend cannot be worked out yet, is reported as insufficient data instead of guessing."""
+    context = RuleContext(state.values, state.statuses, state.history)
     matched: list[PredictedProblem] = []
     insufficient: list[str] = []
     rules = db.scalars(
@@ -223,11 +273,17 @@ def predicted_problems(db: Session, state: PlantState) -> RuleResults:
         except ExpressionError:
             insufficient.append(rule.code)
             continue
-        refs = condition.references | probability.references
-        if any(state.values.get(k) is None for k in refs):
+        # Insufficient: a value needed right now is missing, or the condition can't be decided
+        # (e.g. a trend with too little history). Never guess.
+        required = condition.required | probability.required
+        if any(state.values.get(k) is None for k in required):
             insufficient.append(rule.code)
             continue
-        if evaluate_rule(condition, context) is True:
+        outcome = evaluate_rule(condition, context)
+        if outcome is None:
+            insufficient.append(rule.code)
+            continue
+        if outcome is True:
             prob = _as_float(evaluate_rule(probability, context))
             matched.append(
                 PredictedProblem(

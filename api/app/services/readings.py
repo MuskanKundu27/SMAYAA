@@ -6,14 +6,14 @@ at the same time don't overwrite each other; for the same field, the last save w
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
 from app.core.errors import PermissionDeniedError, ValidationFailedError
-from app.engine.calculation import calculate
+from app.engine.calculation import calculate, history_hours
 from app.models import OperatorProfile, Parameter, Plant, Reading, User
 from app.schemas.common import PageParams
 from app.schemas.readings import Person, Preview, ReadingOut, ReadingSummary
@@ -23,6 +23,7 @@ from app.services.plant_state import (
     BASELINE_SETTING,
     alerts,
     build_state,
+    load_history,
     predicted_problems,
 )
 from app.services.plants import get_plant_in_scope
@@ -92,13 +93,16 @@ def save_reading(
 
     formulas = parsed_formulas(params.values())
     base = plant_setting(db, plant, BASELINE_SETTING)
+    now = datetime.now(UTC)
+    history = load_history(db, plant, history_hours(formulas.values()), now)
     reading = Reading(
         company_id=plant.company_id,
         plant_id=plant.id,
+        recorded_at=now,
         created_by=principal.user_id,
         source="manual",
         input_values=merged,
-        calculated_values=calculate(merged, formulas, base),
+        calculated_values=calculate(merged, formulas, base, history),
         formula_versions={k: params[k].formula_version for k in formulas},
         settings_used={BASELINE_SETTING: base},
         changed_keys=changed,

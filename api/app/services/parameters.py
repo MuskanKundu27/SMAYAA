@@ -13,8 +13,16 @@ from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
 from app.core.errors import ConflictError, NotFoundError, ValidationFailedError
-from app.engine.calculation import BASE, CycleError, calculate, calculation_order, parse_rule
-from app.engine.evaluator import RESERVED_NAMES, ExpressionError, evaluate, parse
+from app.engine.calculation import (
+    BASE,
+    CycleError,
+    calculate,
+    calculation_order,
+    parse_formula,
+    parse_rule,
+)
+from app.engine.evaluator import RESERVED_NAMES, ExpressionError, evaluate
+from app.engine.history import TimeFunctions
 from app.models import Parameter, Rule
 from app.schemas.config import (
     FormulaTest,
@@ -60,7 +68,7 @@ def validate_formula(
 ) -> None:
     """Raise ValidationFailedError (field 'formula') unless the formula is safe and usable."""
     try:
-        expression = parse(formula)
+        expression = parse_formula(formula)
     except ExpressionError as exc:
         raise expression_error("formula", str(exc)) from None
     if key in expression.references:
@@ -74,6 +82,10 @@ def validate_formula(
     except CycleError as exc:
         raise expression_error("formula", str(exc)) from None
 
+    # Formulas with time functions (change, rate, ...) need history, which sample values don't
+    # have, so they are checked for syntax, keys and cycles only.
+    if expression.history_hours > 0:
+        return
     results = calculate(sample_inputs(others), formulas, base)
     if results.get(key) is None:
         raise expression_error(
@@ -217,7 +229,7 @@ def test_formula(
     company = config_company(db, principal, company_id)
     active = active_parameters(db, company_id)
     try:
-        expression = parse(data.formula)
+        expression = parse_formula(data.formula)
         check_references("formula", expression.references, active)
     except ExpressionError as exc:
         return FormulaTestResult(ok=False, result=None, references=[], error=str(exc))
@@ -234,10 +246,14 @@ def test_formula(
     )
     values: dict[str, float | None] = {**inputs, BASE: base}
     values.update(calculate(inputs, parsed_formulas(active.values()), base))
-    result = evaluate(expression, values)
+    result = evaluate(expression, values, TimeFunctions(None, values).functions())
     if isinstance(result, str | list):
         result = None
     return FormulaTestResult(
         ok=result is not None, result=result, references=sorted(expression.references),
-        error=None if result is not None else "No result with these values.",
+        error=None if result is not None else (
+            "This formula looks back in time (change, rate, events, ...), so it needs real "
+            "readings over that period. It will show a value on the plant screens."
+            if expression.history_hours > 0 else "No result with these values."
+        ),
     )  # fmt: skip

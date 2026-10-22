@@ -83,7 +83,7 @@ def seed(db: Session) -> list[str]:
         created.append(f"user {username} ({role})")
 
     # Standard configuration (parameters, rules, modules, ...). Only adds what is missing.
-    added = apply_template(db, company, DEFAULT_TEMPLATE, actor_id=None)
+    added, _ = apply_template(db, company, DEFAULT_TEMPLATE, actor_id=None)
     if any(added.values()):
         created.append("template " + ", ".join(f"{n} {k}" for k, n in added.items() if n))
 

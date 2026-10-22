@@ -15,6 +15,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from app.engine.history import (
+    EVENT_FUNCTIONS,
+    EVENT_LOOKBACK_HOURS,
+    MAX_WINDOW_HOURS,
+    TIME_FUNCTIONS,
+    WINDOW_FUNCTIONS,
+)
+
 MAX_LENGTH = 500  # characters
 MAX_NODES = 200  # parsed elements; keeps evaluation time tiny
 MAX_EXPONENT = 100  # for **, so `9 ** 9 ** 9` cannot freeze the server
@@ -89,6 +97,11 @@ def _exp(x: Value) -> Value:
         return None
 
 
+def _coalesce(*args: Value) -> Value:
+    """The first argument with a value, e.g. coalesce(tss_in, tin) or coalesce(load, 100)."""
+    return next((float(a) for a in args if _num(a)), None)  # type: ignore[arg-type]
+
+
 def _min_max(fn: Callable[..., Any]) -> Callable[..., Value]:
     def wrapped(*args: Value) -> Value:
         if not args or not _num(*args):
@@ -107,12 +120,14 @@ MATH_FUNCTIONS: dict[str, Callable[..., Value]] = {
     "sqrt": _sqrt,
     "log": _log,
     "exp": _exp,
+    "coalesce": _coalesce,
 }
 IF_ELSE = "if_else"
 
 # Names that can never be parameter keys.
 RESERVED_NAMES = frozenset(
     {*MATH_FUNCTIONS, IF_ELSE, "base", "value", "status", "off", "sev", "count_off"}
+    | set(TIME_FUNCTIONS)
     | {"and", "or", "not", "true", "false", "none", "True", "False", "None"}
 )
 
@@ -126,6 +141,11 @@ class Expression:
     # Every parameter key the expression depends on: bare names plus string arguments to
     # helpers like off('ph'). Used for validation and calculation order.
     references: frozenset[str] = field(default_factory=frozenset)
+    # How many hours of earlier readings the time functions in it need (0 = none).
+    history_hours: float = 0.0
+    # References whose current value must exist. Keys used only inside coalesce(...) or a time
+    # function are optional: the expression itself decides what to do without them.
+    required: frozenset[str] = field(default_factory=frozenset)
 
 
 def parse(source: str, functions: Mapping[str, Callable[..., Value]] | None = None) -> Expression:
@@ -165,7 +185,53 @@ def parse(source: str, functions: Mapping[str, Callable[..., Value]] | None = No
             if node.id in allowed_functions:
                 raise ExpressionError(f"'{node.id}' is a function; call it like {node.id}(...).")
             references.add(node.id)
-    return Expression(source=source.strip(), tree=tree, references=frozenset(references))
+    return Expression(
+        source=source.strip(),
+        tree=tree,
+        references=frozenset(references),
+        history_hours=_history_hours(nodes),
+        required=frozenset(_required(tree.body, set(functions or {}), optional=False)),
+    )
+
+
+OPTIONAL_CONTEXT = frozenset({"coalesce", *TIME_FUNCTIONS})
+
+
+def _required(node: ast.AST, helpers: set[str], optional: bool) -> set[str]:
+    """Keys an expression needs right now (see Expression.required)."""
+    if isinstance(node, ast.Name):
+        return set() if optional else {node.id}
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        name = node.func.id
+        inner_optional = optional or name in OPTIONAL_CONTEXT
+        keys: set[str] = set()
+        if name in helpers and not inner_optional:
+            keys |= _string_args(node)
+        for arg in node.args:
+            keys |= _required(arg, helpers, inner_optional)
+        return keys
+    keys = set()
+    for child in ast.iter_child_nodes(node):
+        keys |= _required(child, helpers, optional)
+    return keys
+
+
+def _history_hours(nodes: list[ast.AST]) -> float:
+    hours = 0.0
+    for node in nodes:
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        name = node.func.id
+        if name in EVENT_FUNCTIONS:
+            hours = max(hours, EVENT_LOOKBACK_HOURS)
+        if name in WINDOW_FUNCTIONS:
+            arg = node.args[1] if len(node.args) > 1 else None
+            value = arg.value if isinstance(arg, ast.Constant) else None
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                hours = max(hours, min(float(value), MAX_WINDOW_HOURS))
+            else:
+                hours = MAX_WINDOW_HOURS
+    return hours
 
 
 def _string_args(call: ast.Call) -> set[str]:

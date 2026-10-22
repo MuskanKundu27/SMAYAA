@@ -81,16 +81,31 @@ function TemplateTab({ companyId }: { companyId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  async function apply() {
+  async function apply(updateExisting: boolean) {
+    if (
+      updateExisting &&
+      !window.confirm(
+        'Update this company to the latest template? The template’s own parameters, formulas, ' +
+          'rules and module screens are replaced by the latest version, including any edits made ' +
+          'to them here. Items this company added itself and treatment texts are kept.',
+      )
+    ) {
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      const result = await applyTemplate(companyId)
-      const added = Object.entries(result.added).filter(([, n]) => n > 0)
+      const result = await applyTemplate(companyId, updateExisting)
+      const describe = (counts: Record<string, number>) =>
+        Object.entries(counts)
+          .filter(([, n]) => n > 0)
+          .map(([kind, n]) => `${n} ${kind}`)
+          .join(', ')
+      const added = describe(result.added)
+      const updated = describe(result.updated ?? {})
       setMessage(
-        added.length === 0
-          ? 'Nothing was missing: the company already has everything in the default template.'
-          : `Added ${added.map(([kind, n]) => `${n} ${kind}`).join(', ')}.`,
+        [added && `Added ${added}.`, updated && `Updated ${updated}.`].filter(Boolean).join(' ') ||
+          'Nothing to do: the company already matches the default template.',
       )
     } catch (err) {
       setError(errorMessage(err))
@@ -102,15 +117,30 @@ function TemplateTab({ companyId }: { companyId: string }) {
   return (
     <div className="card">
       <p>
-        The <strong>default template</strong> holds the standard Water Chemistry, Filter and Thermal setup.
-        Applying it adds only what this company is missing (matched by key or code). It never changes
-        or removes the company&apos;s own edits.
+        The <strong>default template</strong> holds the standard Water Chemistry, Side-Stream Filtration
+        and Thermal Efficiency setup: inputs, KPIs, rules and screens.
       </p>
+      <ul className="change-list">
+        <li>
+          <strong>Add missing items</strong> adds only what this company doesn&apos;t have yet. It never
+          changes the company&apos;s own edits.
+        </li>
+        <li>
+          <strong>Update to latest template</strong> also brings the template&apos;s existing formulas,
+          rules and screens up to date (for companies created before a template improvement). Formula and
+          rule versions go up, so saved history is unchanged. The change is recorded in the audit log.
+        </li>
+      </ul>
       {message && <Notice>{message}</Notice>}
       <ErrorText message={error} />
-      <button className="button button--primary" onClick={() => void apply()} disabled={busy}>
-        {busy ? 'Applying…' : 'Apply default template'}
-      </button>
+      <div className="form-grid__actions">
+        <button className="button button--ghost" onClick={() => void apply(true)} disabled={busy}>
+          Update to latest template
+        </button>
+        <button className="button button--primary" onClick={() => void apply(false)} disabled={busy}>
+          {busy ? 'Working…' : 'Add missing items'}
+        </button>
+      </div>
     </div>
   )
 }

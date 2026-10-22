@@ -152,7 +152,10 @@ def module_view(db: Session, principal: Principal, plant_id: uuid.UUID, key: str
         raise NotFoundError("Module not found.")
 
     reading = latest_reading(db, plant.id)
-    state = build_state(db, plant, reading.input_values if reading else {})
+    state = build_state(
+        db, plant, reading.input_values if reading else {},
+        reading.recorded_at if reading else None,
+    )  # fmt: skip
     editable = can_edit_readings(db, principal, plant.id)
     rule_results = predicted_problems(db, state)
     plant_alerts = _alerts_for(db, principal, plant.id, state)
@@ -185,7 +188,10 @@ def plant_alerts(db: Session, principal: Principal, plant_id: uuid.UUID) -> Plan
     principal.require("alerts.view")
     plant = get_plant_in_scope(db, principal, plant_id)
     reading = latest_reading(db, plant.id)
-    state = build_state(db, plant, reading.input_values if reading else {})
+    state = build_state(
+        db, plant, reading.input_values if reading else {},
+        reading.recorded_at if reading else None,
+    )  # fmt: skip
     return PlantAlerts(
         reading=summary(db, reading), alerts=_alerts_for(db, principal, plant.id, state)
     )

@@ -1,11 +1,30 @@
 """Calculated parameters (dependency order, evaluation) and the helpers used by rules."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 
 from app.engine.evaluator import Expression, Value, evaluate, parse
+from app.engine.history import TIME_FUNCTIONS, History, TimeFunctions
 from app.engine.status import NO_DATA, SEVERITY_POINTS, Limits, Status, status_of
 
 BASE = "base"  # reserved formula name: the plant's clean baseline approach
+
+
+def _no_data_helper(*_args: Value) -> Value:
+    return None
+
+
+# parse() only needs the helper names; real helpers are bound to data at evaluation time.
+_TIME_SIGNATURES: dict[str, Callable[..., Value]] = dict.fromkeys(TIME_FUNCTIONS, _no_data_helper)
+
+
+def parse_formula(source: str) -> Expression:
+    """Formulas may use the math functions and the time functions (engine/history.py)."""
+    return parse(source, functions=_TIME_SIGNATURES)
+
+
+def history_hours(expressions: Iterable[Expression]) -> float:
+    """Hours of earlier readings needed to evaluate these expressions (0 = none)."""
+    return max((e.history_hours for e in expressions), default=0.0)
 
 
 class CycleError(ValueError):
@@ -41,12 +60,15 @@ def calculate(
     inputs: Mapping[str, float | None],
     formulas: Mapping[str, Expression],
     base: float | None = None,
+    history: History | None = None,
 ) -> dict[str, float | None]:
-    """Return the value of every calculated key. Unknown inputs give None, never an error."""
+    """Return the value of every calculated key. Unknown inputs give None, never an error.
+    Without `history`, time functions (change, rate, ...) give None."""
     values: dict[str, float | None] = {**inputs, BASE: base}
+    time_functions = TimeFunctions(history, values).functions()
     results: dict[str, float | None] = {}
     for key in calculation_order(formulas):
-        values[key] = results[key] = _as_number(evaluate(formulas[key], values))
+        values[key] = results[key] = _as_number(evaluate(formulas[key], values, time_functions))
     return results
 
 
@@ -71,11 +93,18 @@ class RuleContext:
     count_off(['a','b'])  how many of the listed parameters are off
 
     Missing data ('na') is not "off": no data must not raise a predicted problem.
+    The time functions (change, rate, events, ...) are available too; see engine/history.py.
     """
 
-    def __init__(self, values: Mapping[str, float | None], statuses: Mapping[str, Status]):
+    def __init__(
+        self,
+        values: Mapping[str, float | None],
+        statuses: Mapping[str, Status],
+        history: History | None = None,
+    ):
         self._values = values
         self._statuses = statuses
+        self._time = TimeFunctions(history, values)
 
     @property
     def values(self) -> Mapping[str, float | None]:
@@ -106,15 +135,13 @@ class RuleContext:
         return float(sum(self._is_off(k) for k in keys))
 
     def functions(self) -> dict[str, Callable[..., Value]]:
-        return {name: getattr(self, name) for name in RULE_HELPERS}
+        return {**self._time.functions(), **{name: getattr(self, name) for name in RULE_HELPERS}}
 
 
-def _no_data_helper(*_args: Value) -> Value:
-    return None
-
-
-# parse() only needs the helper names; real helpers are bound to data at evaluation time.
-_RULE_SIGNATURES: dict[str, Callable[..., Value]] = dict.fromkeys(RULE_HELPERS, _no_data_helper)
+_RULE_SIGNATURES: dict[str, Callable[..., Value]] = {
+    **_TIME_SIGNATURES,
+    **dict.fromkeys(RULE_HELPERS, _no_data_helper),
+}
 
 
 def parse_rule(source: str) -> Expression:

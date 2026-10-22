@@ -117,8 +117,11 @@ def test_parameters_used_by_formulas_or_rules_cannot_be_deactivated(api: Call) -
 
 
 def test_unused_parameters_can_be_deactivated_and_reactivated(api: Call) -> None:
-    assert api("PATCH", "/parameters/bw", json={"is_active": False}).json()["is_active"] is False
-    assert api("PATCH", "/parameters/bw", json={"is_active": True}).json()["is_active"] is True
+    # tssout (outlet TSS) is shown on screens but used by no formula or rule.
+    assert (
+        api("PATCH", "/parameters/tssout", json={"is_active": False}).json()["is_active"] is False
+    )
+    assert api("PATCH", "/parameters/tssout", json={"is_active": True}).json()["is_active"] is True
 
 
 def test_default_limits_can_be_changed_and_must_be_ordered(api: Call) -> None:

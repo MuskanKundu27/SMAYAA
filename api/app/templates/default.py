@@ -66,6 +66,9 @@ class Template:
 
 P = TemplateParameter
 
+# Inputs and KPIs follow the engineering note (Thermal Efficiency and Side-Stream Filtration
+# modules). Optional inputs have no limits; KPIs that need them show "No data" until they exist.
+# Trend KPIs use the time functions (engine/history.py) and need some history first.
 PARAMETERS = [
     # Chemistry (typed in)
     P("ph", "pH", "", "chemistry", 7.9, (6.8, 7.2, 8.2, 8.8)),
@@ -75,31 +78,73 @@ PARAMETERS = [
     P("alk", "Alkalinity", "ppm", "chemistry", 300, (100, 150, 350, 450), precision=0),
     P("sio2", "Silica", "ppm", "chemistry", 95, (0, 0, 120, 150), precision=0),
     P("mic", "Microbial count", "CFU/mL", "chemistry", 600, (0, 0, 1000, 5000), precision=0),
-    # Thermal (typed in)
+    # Thermal (typed in or from the plant system)
     P("ts", "Supply temperature", "°C", "thermal", 31, (20, 25, 32, 35), precision=1),
     P("tr", "Return temperature", "°C", "thermal", 39, (30, 35, 42, 45), precision=1),
     P("wbt", "Wet-bulb temperature", "°C", "thermal", 26, precision=1),
     P("flow", "Circulating flow", "m³/h", "thermal", 1000, (500, 700, 1300, 1500), precision=0),
     P("fan", "Fan power", "kW", "thermal", 70, (0, 0, 80, 95), precision=1),
-    # Filter (typed in, no limits)
+    P("fanspd", "Fan speed", "%", "thermal", 100, precision=0),
+    P("pumpspd", "Pump speed", "%", "thermal", 100, precision=0),
+    P("pumppow", "Pump power", "kW", "thermal", 55, precision=1),
+    P("pumpp", "Pump discharge pressure", "bar", "thermal", 2.8),
+    P("load", "Process load", "%", "thermal", 100, precision=0),
+    # Side-stream filter (typed in or from the plant system)
     P("pin", "Inlet pressure", "bar", "filter", 2.4),
     P("pout", "Outlet pressure", "bar", "filter", 1.8),
+    P("ssflow", "Side-stream flow", "m³/h", "filter", 50, precision=1),
     P("tin", "Inlet turbidity", "NTU", "filter", 12, precision=1),
     P("tout", "Outlet turbidity", "NTU", "filter", 2, precision=1),
+    P("tssin", "Inlet TSS", "mg/L", "filter", 15, precision=1),
+    P("tssout", "Outlet TSS", "mg/L", "filter", 3, precision=1),
+    P("clean", "Cleaning / backwash active (1 = yes)", "", "filter", 0, precision=0),
     P("bwf", "Backwash flow", "m³/h", "filter", 30, precision=1),
     P("bwt", "Backwash time", "min", "filter", 6, precision=1),
-    # Calculated
+    P("oil", "Oil in water", "mg/L", "filter", 0, precision=1),
+    P("valve", "Bypass valve open (1 = yes)", "", "filter", 0, precision=0),
+    P("sspump", "Side-stream pump running (1 = yes)", "", "filter", 1, precision=0),
+    # Calculated: chemistry
     P("lsi", "LSI (demo formula)", "", "chemistry", limits=(-1, -0.5, 0.8, 1.5),
       formula="ph - 7.6 + (hard - 400) / 800 + (alk - 250) / 600"),
+    # Calculated: thermal efficiency KPIs
     P("range", "Range", "°C", "thermal", limits=(3, 5, 10, 12), formula="tr - ts", precision=1),
     P("appr", "Approach", "°C", "thermal", limits=(2, 3, 6, 8), formula="ts - wbt", precision=1),
     P("heat", "Heat load", "kW", "thermal", formula="1.163 * flow * (tr - ts)", precision=0),
+    # Demo model until a calibrated one exists: the clean baseline, scaled for process load and
+    # fan speed (missing values count as 100 %).
+    P("expappr", "Expected approach (demo model)", "°C", "thermal",
+      formula="base * (coalesce(load, 100) / 100) ** 0.7"
+              " * (100 / max(coalesce(fanspd, 100), 20)) ** 0.5", precision=1),
     P("resid", "Approach residual", "°C", "thermal", limits=(-2, -2, 1.5, 3),
-      formula="appr - base", precision=1),
+      formula="appr - expappr", precision=1),
+    P("fanresp", "Fan response (6 h)", "°C per %", "thermal",
+      formula="change('appr', 6) / change('fanspd', 6)", precision=3),
+    P("sfe", "Specific fan energy", "kW per MW", "thermal", formula="fan / heat * 1000",
+      precision=1),
+    # Calculated: side-stream filtration KPIs
     P("dp", "Filter ΔP", "bar", "filter", limits=(0, 0, 0.8, 1.2), formula="pin - pout"),
     P("rem", "Removal efficiency", "%", "filter", limits=(50, 70, 100, 100),
       formula="(tin - tout) / tin * 100", precision=1),
+    P("dprate", "ΔP rate of change", "bar/day", "filter", formula="rate('dp', 24) * 24",
+      precision=3),
+    P("dpf6", "ΔP forecast (6 h)", "bar", "filter", formula="dp + dprate / 4"),
+    P("dpf24", "ΔP forecast (24 h)", "bar", "filter", formula="dp + dprate"),
+    # Time until ΔP reaches 1.2 bar at the current loading rate (no value when not loading).
+    P("ttc", "Time to clean (P50)", "h", "filter",
+      formula="max(0, (1.2 - dp) / max(dprate, 0) * 24)", precision=0),
+    P("solids", "Solids load proxy", "kg/h", "filter",
+      formula="ssflow * coalesce(tssin, tin) / 1000", precision=2),
+    P("cleancount", "Cleanings (7 days)", "", "filter", formula="events('clean', 168)",
+      precision=0),
+    P("cleanint", "Average cleaning interval (7 days)", "h", "filter",
+      formula="168 / events('clean', 168)", precision=0),
+    P("since", "Time since last cleaning", "h", "filter", formula="hours_since('clean')",
+      precision=0),
+    P("dprec", "ΔP recovery (last cleaning)", "bar", "filter",
+      formula="before_event('dp', 'clean') - after_event('dp', 'clean')"),
     P("bw", "Water per cleaning", "m³", "filter", formula="bwf * bwt / 60", precision=1),
+    P("treated", "m³ treated per cleaning (7 days)", "m³", "filter",
+      formula="total('ssflow', 168) / events('clean', 168)", precision=0),
 ]  # fmt: skip
 
 
@@ -168,28 +213,84 @@ CHEM_FILTER = "['tds', 'sio2', 'mic', 'cond']"
 CHEM_THERMAL = "['lsi', 'hard', 'alk', 'mic']"
 FILTER_PROBABILITY = f"min(95, 15 + 22 * count_off({CHEM_FILTER}) + sev('dp') + sev('rem'))"
 THERMAL_PROBABILITY = f"min(95, 15 + 20 * count_off({CHEM_THERMAL}) + sev('resid') + sev('appr'))"
+# Trend pieces. coalesce(..., 0) means "no trend yet counts as no change", so a rule can still
+# decide from today's values; rules that only make sense with a trend leave it out and show
+# "insufficient data" until there is enough history.
+RESID_TREND = "coalesce(rate('resid', 24) * 24, 0)"  # °C per day
+STABLE_CONDITIONS = (
+    "abs(coalesce(change('wbt', 24), 0)) < 2 and abs(coalesce(change('load', 24), 0)) < 10"
+)
 
 R = TemplateRule
 
-# Demo heuristics. FLT-P03 vs FLT-P01 follow the original spec: chemistry influence present →
-# faster loading (P03); ΔP off without chemistry influence → normal loading (P01).
+# Predicted problems from the engineering note. Conditions and probabilities are demo
+# heuristics until trained models take over the same codes.
 RULES = [
-    R("FLT-P01", "Normal filter loading", f"off('dp') and count_off({CHEM_FILTER}) == 0",
-      FILTER_PROBABILITY, "Schedule the next backwash.", ("filter",)),
-    R("FLT-P02", "Breakthrough / poor removal", "off('rem')",
-      FILTER_PROBABILITY, "Inspect screen or media for damage or bypass.", ("filter",)),
-    R("FLT-P03", "Faster loading than normal", f"count_off({CHEM_FILTER}) > 0",
-      FILTER_PROBABILITY, "Backwash earlier and review chemistry limits.", ("filter",)),
+    # --- Side-stream filtration ---
+    R("FLT-P01", "Normal loading / time to clean",
+      f"(off('dp') or coalesce(dprate, 0) > 0) and not off('rem')"
+      f" and count_off({CHEM_FILTER}) == 0",
+      FILTER_PROBABILITY, "Schedule the next backwash (see time to clean).", ("filter",)),
+    R("FLT-P02", "Breakthrough / poor removal",
+      "off('rem') or (coalesce(rate('tout', 24), 0) > 0.5 and coalesce(rate('rem', 24), 0) < 0)",
+      FILTER_PROBABILITY, "Inspect screen or media for damage, channeling or bypass.",
+      ("filter",)),
+    R("FLT-P03", "Abnormally fast loading",
+      f"count_off({CHEM_FILTER}) > 0"
+      " or (coalesce(dprate, 0) > 0.2 and coalesce(rate('tin', 24), 0) > 0)",
+      FILTER_PROBABILITY, "Backwash earlier; look for a contamination event or high solids.",
+      ("filter",)),
+    R("FLT-P04", "Low flow / hydraulic restriction",
+      "(off('dp') and rate('ssflow', 24) < 0) or coalesce(sspump, 1) < 0.5",
+      "min(95, 30 + sev('dp'))", "Check strainer, pump and valves on the side-stream line.",
+      ("filter",)),
+    R("FLT-P05", "Ineffective cleaning", "dprec < 0.15",
+      "min(95, 40 + sev('dp'))", "Check backwash sequence and filter internals.", ("filter",)),
+    R("FLT-P06", "Excessive cleaning water",
+      "(events('clean', 168) > 7 or bw > 5) and not off('rem')",
+      "min(95, 20 + 5 * coalesce(events('clean', 168), 0))",
+      "Review the backwash trigger and sequence; save water.", ("filter",)),
+    R("FLT-P07", "Low ΔP with high outlet turbidity",
+      "(dp < 0.2 and (off('rem') or tout > 5)) or coalesce(valve, 0) >= 0.5",
+      "min(95, 40 + sev('rem'))", "Check for an open bypass, channeling or a damaged element.",
+      ("filter",)),
+    # --- Thermal efficiency ---
     R("TH-P01", "Thermal performance deterioration",
-      f"(off('resid') or off('appr')) and count_off({CHEM_THERMAL}) == 0 and not off('dp')",
-      THERMAL_PROBABILITY, "Check fan, airflow and process load.", ("thermal",)),
+      f"(off('resid') or {RESID_TREND} > 0.3) and {STABLE_CONDITIONS}"
+      f" and count_off({CHEM_THERMAL}) == 0 and not off('dp')",
+      f"min(95, 25 + sev('resid') + sev('appr') + min(30, 60 * max(0, {RESID_TREND})))",
+      "Check fan, airflow and process load.", ("thermal",)),
     R("TH-P02", "Fouling / solids deposition",
-      f"(off('resid') or off('appr') or count_off({CHEM_THERMAL}) > 0)"
-      f" and (count_off({CHEM_THERMAL}) > 0 or off('dp'))",
+      f"(off('resid') or off('appr') or count_off({CHEM_THERMAL}) > 0 or {RESID_TREND} > 0)"
+      f" and (count_off({CHEM_THERMAL}) > 0 or off('dp')"
+      " or coalesce(rate('tssin', 24), 0) > 0 or coalesce(dprate, 0) > 0.1)",
       THERMAL_PROBABILITY, "Increase side-stream filtration; inspect fill and nozzles.",
+      ("thermal", "filter")),
+    R("TH-P03", "Airflow / fan underperformance",
+      "off('resid') and (rate('fan', 24) > 0 or rate('fanspd', 24) > 0)"
+      " and coalesce(fanresp, 0) > -0.01",
+      "min(95, 30 + sev('resid') + sev('fan'))",
+      "Inspect fan, belt/gearbox, louvers; check for recirculation or a blocked air path.",
       ("thermal",)),
+    R("TH-P04", "Hydraulic restriction / low circulation",
+      "rate('flow', 24) < 0 and rate('range', 24) > 0"
+      " and (abs(coalesce(rate('pumpp', 24), 0)) > 0 or off('flow'))",
+      "min(95, 30 + sev('flow') + sev('range'))",
+      "Check strainers, valves and pumps; look for a process restriction.", ("thermal",)),
+    R("TH-P05", "Excess circulation / bypass / sensor mismatch",
+      "rate('range', 24) < 0 and abs(coalesce(change('load', 24), 0)) < 5",
+      "min(95, 25 + sev('range'))",
+      "Check for an open bypass, excess pump speed, or temperature/flow sensor errors.",
+      ("thermal",)),
+    R("TH-P06", "Thermal energy inefficiency",
+      "rate('sfe', 24) > 0 and coalesce(rate('heat', 24), 0) <= 0",
+      "min(95, 30 + sev('fan'))",
+      "Look for airflow restriction, hydraulic inefficiency or fouling.", ("thermal",)),
 ]  # fmt: skip
 
+
+FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
+THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 
 MODULES = [
     TemplateModule(
@@ -199,58 +300,87 @@ MODULES = [
             {"type": "alert_list", "title": "Alerts"},
             {"type": "input_group", "title": "Chemistry", "group": "chemistry"},
             {"type": "input_group", "title": "Thermal", "group": "thermal"},
-            {"type": "input_group", "title": "Filter", "group": "filter"},
+            {"type": "input_group", "title": "Side-stream filter", "group": "filter"},
             {
                 "type": "value_tiles",
                 "title": "Calculated values",
-                "params": ["lsi", "range", "appr", "heat", "resid", "dp", "rem", "bw"],
+                "params": ["lsi", "range", "appr", "resid", "heat", "dp", "rem", "bw"],
             },
         ],
     ),
     TemplateModule(
         "filter",
-        "Filter",
+        "Side-Stream Filtration",
         [
-            {"type": "value_tiles", "title": "Filter KPIs", "params": ["dp", "rem", "bw"]},
+            {
+                "type": "text_note",
+                "text": "Is the side-stream filter removing solids correctly, how fast is it "
+                "loading, when will cleaning be needed, and is cleaning using more water than "
+                "necessary?",
+            },
+            {
+                "type": "value_tiles",
+                "title": "Filtration KPIs",
+                "params": ["dp", "rem", "dprate", "solids"],
+            },
+            {
+                "type": "value_tiles",
+                "title": "Cleaning",
+                "params": ["ttc", "dpf6", "dpf24", "since", "cleancount", "cleanint", "dprec",
+                           "bw", "treated"],
+            },
+            {"type": "trend_chart", "title": "Filter ΔP (7 days)", "params": ["dp"], "hours": 168},
             {
                 "type": "inputs_summary",
                 "title": "Inputs used",
-                "params": ["pin", "pout", "tin", "tout", "bwf", "bwt"],
+                "params": ["pin", "pout", "ssflow", "tin", "tout", "tssin", "tssout", "clean",
+                           "bwf", "bwt", "oil", "valve", "sspump"],
             },
+            {"type": "predicted_problems", "title": "Predicted problems", "rules": FILTER_RULES},
             {
-                "type": "predicted_problems",
-                "title": "Predicted problems",
-                "rules": ["FLT-P01", "FLT-P02", "FLT-P03"],
+                "type": "text_note",
+                "text": "Trend KPIs (rate of change, forecasts, cleaning interval, ΔP recovery) "
+                "need a few readings over time before they show a value.",
             },
         ],
     ),
     TemplateModule(
         "thermal",
-        "Thermal",
+        "Thermal Efficiency",
         [
+            {
+                "type": "text_note",
+                "text": "Under the present wet-bulb, process load, circulating flow and fan "
+                "condition, is the tower cooling as well as it should, and what problem is "
+                "developing next?",
+            },
             {
                 "type": "value_tiles",
                 "title": "Thermal KPIs",
-                "params": ["appr", "range", "heat", "resid"],
+                "params": ["appr", "expappr", "resid", "range", "heat", "fanresp", "sfe"],
+            },
+            {
+                "type": "trend_chart",
+                "title": "Approach and residual (7 days)",
+                "params": ["appr", "resid"],
+                "hours": 168,
             },
             {
                 "type": "inputs_summary",
                 "title": "Inputs used",
-                "params": ["ts", "tr", "wbt", "flow", "fan"],
+                "params": ["ts", "tr", "wbt", "flow", "fan", "fanspd", "pumpspd", "pumppow",
+                           "pumpp", "load", "tin", "tssin"],
             },
+            {"type": "predicted_problems", "title": "Predicted problems", "rules": THERMAL_RULES},
             {
                 "type": "text_note",
-                "text": "Approach residual compares today's approach with the plant's clean "
-                "baseline approach, set by the manager.",
-            },
-            {
-                "type": "predicted_problems",
-                "title": "Predicted problems",
-                "rules": ["TH-P01", "TH-P02"],
+                "text": "Expected approach is a demo model: the plant's clean baseline approach "
+                "scaled for process load and fan speed. Approach residual = actual minus "
+                "expected.",
             },
         ],
     ),
-]
+]  # fmt: skip
 
 
 DEFAULT_TEMPLATE = Template(

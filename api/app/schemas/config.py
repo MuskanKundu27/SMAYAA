@@ -259,6 +259,7 @@ class ModuleOut(BaseModel):
 class TemplateApplied(BaseModel):
     template: str
     added: dict[str, int]
+    updated: dict[str, int] = Field(default_factory=dict)  # only with update_existing
 
 
 # --- Plant limits and settings -----------------------------------------------------------------

@@ -110,9 +110,9 @@ export const createModule = (companyId: string, body: Json) =>
 export const updateModule = (companyId: string, key: string, body: Json) =>
   apiFetch<Module>(`${company(companyId)}/modules/${id(key)}`, send('PATCH', body))
 
-export const applyTemplate = (companyId: string) =>
-  apiFetch<{ template: string; added: Record<string, number> }>(
-    `${company(companyId)}/apply-template`,
+export const applyTemplate = (companyId: string, updateExisting = false) =>
+  apiFetch<{ template: string; added: Record<string, number>; updated: Record<string, number> }>(
+    `${company(companyId)}/apply-template${updateExisting ? '?update_existing=true' : ''}`,
     send('POST'),
   )
 

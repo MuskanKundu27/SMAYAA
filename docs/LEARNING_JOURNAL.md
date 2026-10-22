@@ -497,6 +497,42 @@ A detail worth knowing: modern browsers read `pattern` with strict rules, where 
 
 ---
 
+## Entry 14 – Complete Thermal Efficiency and Side-Stream Filtration modules (2026-10-22)
+
+**What we did**
+We completed both modules from the engineering note:
+- **New inputs:** fan speed, pump speed, pump power, pump pressure, process load, side-stream flow, inlet/outlet TSS, cleaning status, oil-in-water, bypass valve and pump status.
+- **New KPIs:** expected approach, fan response, specific fan energy, ΔP rate of change, ΔP forecasts, time to clean, solids load, cleaning count and interval, time since cleaning, ΔP recovery, m³ treated per cleaning.
+- **All 13 predicted problems:** FLT-P01 to FLT-P07 and TH-P01 to TH-P06.
+- **Screens:** each module now starts with the question it answers, shows its KPIs, a 7-day trend chart, the inputs it uses and its predicted problems.
+
+**The key idea: formulas that can look back in time**
+Many KPIs are about change: "how fast is ΔP rising?", "how long since the last cleaning?". Until now a formula only saw the newest values. Instead of writing special code for each KPI, we added a few general **time functions** that any formula or rule can use:
+- `rate('dp', 24)`: how fast ΔP changed over the last 24 hours
+- `change('appr', 6)`: how much the approach moved in 6 hours
+- `events('clean', 168)`: how many cleanings in the last week
+- `hours_since('clean')`, `before_event(...)`, `after_event(...)`, `avg(...)`, `total(...)`
+
+So "ΔP rate of change" is just the formula `rate('dp', 24) * 24`, typed in the Configuration screen. A future KPI that needs a trend needs no new code. This is the "small building blocks" principle again.
+
+**Being honest about missing data**
+- A brand-new plant has no history, so trend KPIs show "No data" and trend-based predictions show "insufficient data" until enough readings exist. We never invent a number.
+- `coalesce(x, 0)` lets a formula say "if there's no trend yet, treat it as no change", for predictions that can still decide from today's values.
+
+**A bug the smoke test caught**
+Autosave can create two readings a few seconds apart. Dividing a tiny change by a few seconds gave a "ΔP rate" of about minus one million bar per day! The fix: a trend needs readings that cover at least 10 % of its window (2.4 hours for a 24-hour trend). Lesson: test with realistic data patterns, not only neat examples.
+
+**Updating existing customers safely**
+Companies created earlier still had the old screens, because "apply template" only adds what's missing; it never overwrites a company's edits. We added a separate, clearly labelled **"Update to latest template"** action. It refreshes the template's own formulas, rules and screens, bumps their version numbers so stored history stays valid, and records the change in the audit log.
+
+**What to learn**
+- Look for the general mechanism behind a list of features. Here, 15 trend KPIs became one set of time functions plus data.
+- "Not enough data" is a valid answer. Showing it is better than showing a wrong number.
+- Separate "safe" actions (add missing) from "overwrite" actions, and make the second one explicit, confirmed and audited.
+- The demo model and probabilities are placeholders until engineers calibrate them, and the screens say so.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -574,3 +610,8 @@ A detail worth knowing: modern browsers read `pattern` with strict rules, where 
 | **Upsert** | "Update or insert": change the item if it exists, otherwise create it. |
 | **Pagination** | Showing a long list in pages (e.g. 50 at a time) instead of all at once. |
 | **Hook (React)** | A reusable function that gives a component state or behaviour, e.g. `useLoad`. |
+| **Time series** | Values of the same measurement recorded over time. |
+| **Rate of change** | How fast a value moves, e.g. bar per day. |
+| **Integral (total over time)** | Adding up a flow over time, e.g. m³/h over 7 days gives m³. |
+| **Forecast** | An estimate of a future value, here by extending the current trend. |
+| **Coalesce** | "Use the first value that exists", a fallback for missing data. |

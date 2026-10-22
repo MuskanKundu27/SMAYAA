@@ -274,16 +274,29 @@ Code checks **permission strings**, never role names: `principal.require("plants
 ### 8.6a Calculation engine (`app/engine/`)
 Pure functions, no database, so they are easy to test and reuse.
 - **`evaluator.py`:** `parse(source, functions=None)` turns text into a checked `Expression`. It uses Python's `ast` parser, then rejects everything not on a whitelist:
-  - **Allowed:** numbers, strings (for helper arguments), names, `+ - * / **`, comparisons (chains allowed), `and/or/not`, lists, and calls to `min max abs round sqrt log exp if_else` (plus rule helpers when parsing rules).
+  - **Allowed:** numbers, strings (for helper arguments), names, `+ - * / **`, comparisons (chains allowed), `and/or/not`, lists, and calls to `min max abs round sqrt log exp if_else coalesce` (plus the time functions, and the rule helpers when parsing rules). `coalesce(a, b, ...)` returns the first argument with a value, e.g. `coalesce(load, 100)` for an optional input.
   - **Rejected:** attributes, indexing, lambdas, comprehensions, keyword arguments, unknown functions, more than 500 characters, more than 200 nodes.
 
-  `Expression.references` lists every parameter key used, including string arguments to helpers like `off('ph')`. `evaluate(expr, variables, functions)` **never raises for data problems**: a missing value, division by zero, `sqrt` of a negative, overflow, or an exponent above 100 all give `None` ("No data"). `if_else(cond, a, b)` evaluates only the chosen branch. **`eval`/`exec` are never used.**
+  `Expression.references` lists every parameter key used, including string arguments to helpers like `off('ph')` and time functions like `rate('dp', 24)`. `Expression.required` is the subset whose **current** value must exist: keys used only inside `coalesce(...)` or a time function are optional. `Expression.history_hours` is how much history the time functions in it need (0 = none). `evaluate(expr, variables, functions)` **never raises for data problems**: a missing value, division by zero, `sqrt` of a negative, overflow, or an exponent above 100 all give `None` ("No data"). `if_else(cond, a, b)` evaluates only the chosen branch. **`eval`/`exec` are never used.**
 - **`status.py`:** `status_of(value, Limits)` returns `good` / `warn` (+ direction) / `bad` (+ direction) / `na`, exactly per the brief (inclusive bounds; no limits = always good). `SEVERITY_POINTS` gives 20 for warn and 40 for bad.
 - **`calculation.py`:**
   - `calculation_order(formulas)` sorts formulas topologically (Kahn's algorithm) and raises `CycleError` on loops.
-  - `calculate(inputs, formulas, base)` computes every calculated key in that order. `base` is the reserved name for the plant's clean baseline approach.
-  - `RuleContext` provides the rule helpers `value`, `status`, `off`, `sev` and `count_off`. A missing value counts as **not off**, so no data never raises a prediction.
+  - `parse_formula(source)` parses a formula (math functions + time functions). `calculate(inputs, formulas, base, history=None)` computes every calculated key in that order. `base` is the reserved name for the plant's clean baseline approach. Without `history`, time functions give `None`.
+  - `RuleContext(values, statuses, history=None)` provides the rule helpers `value`, `status`, `off`, `sev` and `count_off`, plus the time functions. A missing value counts as **not off**, so no data never raises a prediction.
   - `parse_rule` and `evaluate_rule` work like `parse` and `evaluate`, with those helpers.
+- **`history.py` (time functions):** formulas and rules can look back at the plant's earlier readings. One general mechanism, so trend KPIs are configuration, not code. `History(now, points)` holds earlier readings (oldest first, each with its stored input and calculated values); `TimeFunctions` binds the functions to a history and the current values:
+
+  | Function | Meaning |
+  |---|---|
+  | `change('k', h)` | k now minus k at the oldest reading in the last h hours |
+  | `rate('k', h)` | that change per hour (× 24 for per day) |
+  | `avg('k', h)` | average over the window, including now |
+  | `total('k', h)` | time integral over the window (m³/h → m³), trapezoid rule |
+  | `events('e', h)` | how many times on/off input e switched on (≥ 0.5) in the window |
+  | `hours_since('e')` | hours since e last switched on |
+  | `before_event('k', 'e')` / `after_event('k', 'e')` | k just before e last started / just after it last ended |
+
+  `change` and `rate` need readings spanning at least 10 % of the window (`MIN_SPAN_FRACTION`); otherwise `None`, because autosaves seconds apart would turn tiny differences into absurd rates. Windows are capped at 90 days; event functions look back 30 days. "Now" is the time of the reading being calculated.
 
 ### 8.6b Company configuration (super admin)
 All under `/companies/{company_id}/...`, permission `config.manage`, platform database context. Services: `parameters.py`, `rules.py`, `modules.py` (modules + treatments), `templates.py`; shared helpers in `config_common.py`.
@@ -305,9 +318,14 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
 ### 8.6c Templates (`app/templates/default.py`)
-- The default template is plain Python data: 26 parameters (18 inputs, 8 calculated, with units, sample values and default limits), 20 treatments (flagged `needs_review`), 5 rules (FLT-P01/P02/P03, TH-P01/P02), 3 modules (Water Chemistry, Filter, Thermal), and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
-- `services/templates.apply_template(db, company, template, actor_id)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits.
-- `POST /companies` applies the default template automatically. `POST /companies/{id}/apply-template` re-applies it (adds anything missing). The dev seed applies it to Demo Power Ltd.
+- The default template is plain Python data and follows the engineering note's Thermal Efficiency and Side-Stream Filtration modules:
+  - **Inputs (31):** chemistry (pH, conductivity, TDS, hardness, alkalinity, silica, microbial count); thermal (supply/return temperature, wet-bulb, circulating flow, fan power, fan speed, pump speed, pump power, pump discharge pressure, process load); side-stream filter (inlet/outlet pressure, side-stream flow, inlet/outlet turbidity, inlet/outlet TSS, cleaning/backwash status, backwash flow and time, oil-in-water, bypass valve status, side-stream pump status). Optional inputs have no limits; on/off inputs use 1 = yes.
+  - **Calculated (21):** LSI (demo); thermal: range, approach, heat load, expected approach (**demo model**: clean baseline scaled for process load and fan speed), approach residual (actual − expected), fan response (6 h), specific fan energy; filter: ΔP, removal efficiency, ΔP rate of change, ΔP forecast 6 h / 24 h, time to clean (P50, to 1.2 bar), solids load proxy, cleanings and average cleaning interval (7 days), time since last cleaning, ΔP recovery, water per cleaning, m³ treated per cleaning (7 days). Trend KPIs use the time functions.
+  - **Rules (13):** FLT-P01..P07 and TH-P01..P06 as named in the note. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
+  - **Modules (3):** Water Chemistry (data entry), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes).
+  - 20 treatments (flagged `needs_review`) and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
+- `services/templates.apply_template(db, company, template, actor_id, update_existing=False)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits. With **`update_existing=True`** ("update to the latest template") it also refreshes the template's own existing parameters (label, unit, group, formula with a version bump, precision, default limits), rules (title, expressions with a version bump, action, affected modules) and modules (title, layout). Items the company added itself and treatments are never touched; the change is audited.
+- `POST /companies` applies the default template automatically. `POST /companies/{id}/apply-template` re-applies it (adds anything missing); `?update_existing=true` updates to the latest template. The dev seed applies it to Demo Power Ltd.
 - `tests/test_template.py` checks that the template is valid on its own: references, no loops, ordered limits, rules evaluate, and widgets reference existing items.
 
 ### 8.6d Plant limits and settings
@@ -332,15 +350,15 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - `GET .../readings/latest` returns the newest reading (or `null`); screens poll it and reload when the id changes. `GET .../readings?from=&to=&limit=&offset=` returns history, newest first, **with values exactly as stored** at save time. So changing a formula never rewrites history (tested).
 
 ### 8.6f Plant state, alerts, predicted problems (`services/plant_state.py`)
-`build_state(db, plant, inputs)` is the one function that turns input values into a `PlantState`: active parameters, effective limits, all values (inputs + calculated with **current** formulas and baseline) and statuses. The alert bar, module screens and preview all use it, so they always agree. Live screens therefore reflect formula, limit or baseline changes immediately, while history keeps the stored values.
+`build_state(db, plant, inputs, now=None)` is the one function that turns input values into a `PlantState`: active parameters, effective limits, all values (inputs + calculated with **current** formulas and baseline) and statuses. `now` is the moment the inputs belong to (the latest reading's time for live screens; the current time for saving and preview). If any active formula or rule uses time functions, `load_history` loads the plant's readings from the needed window before `now` (newest 5,000 at most) and passes them to the calculation and the rule helpers. Saving a reading stores calculated values computed with that history too. The alert bar, module screens and preview all use it, so they always agree. Live screens therefore reflect formula, limit or baseline changes immediately, while history keeps the stored values.
 - **Alerts** (`alerts(db, state)`): every parameter whose status is `warn` (severity `medium`) or `bad` (severity `high`), with value, unit, direction, limits, cause/treatment/precautions from `treatments` (or `FALLBACK_TREATMENT`), `needs_review`, and **modules affected**. Sorted most severe first.
 - **Modules affected** (`affected_modules`) are worked out from configuration, not hard-coded. A module is affected by parameter X if:
   - it shows X or any calculation that (indirectly) uses X; or
   - it shows a rule that uses X; or
   - a rule using X lists the module in `affects_modules`.
 
-  Example: hardness → Water Chemistry (shown there) + Thermal (TH rules use it; LSI uses it).
-- **Predicted problems** (`predicted_problems`): every active rule is evaluated with the rule helpers. A rule whose referenced values are missing (no data, or an inactive parameter) is reported as **insufficient data** instead of guessing. Matches are sorted by probability (0–100, rounded), highest first. All matches are shown (no first-match logic).
+  Example: hardness → Water Chemistry (shown there) + Thermal (TH rules and LSI use it) + Side-Stream Filtration (the fouling rule TH-P02 lists it in `affects_modules`).
+- **Predicted problems** (`predicted_problems`): every active rule is evaluated with the rule helpers and time functions. A rule is reported as **insufficient data** instead of guessing when a value it needs right now (`Expression.required`) is missing (no data, or an inactive parameter), or when its condition can't be decided (e.g. a trend without enough history). Matches are sorted by probability (0–100, rounded), highest first. All matches are shown (no first-match logic).
 
 ### 8.6g Module screens for plant users (`services/plant_views.py`)
 - `GET /plants/{id}/modules` lists the company's active modules, filtered by the operator profile's `visible_modules` if one exists. Needs `modules.view`.
@@ -414,7 +432,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | POST | `/companies/{id}/rules/test` | config.manage | `{condition_expr, probability_expr?, values, base?}` → `{ok, matched, probability, references, error}` |
 | GET / POST | `/companies/{id}/modules` | config.manage | List / create (layout validated; `warnings` for missing references) |
 | PATCH | `/companies/{id}/modules/{key}` | config.manage | Update title, order, layout, active |
-| POST | `/companies/{id}/apply-template?template=default` | config.manage | Add missing template items → `{template, added}` |
+| POST | `/companies/{id}/apply-template?template=default` | config.manage | Add missing template items → `{template, added, updated}`; `&update_existing=true` also updates the template's existing parameters, rules and modules (audited) |
 | GET | `/plants/{id}/limits` | limits.read | Effective limits + `has_manager`, `can_edit` |
 | PUT | `/plants/{id}/limits` | limits.write, or company admin without manager | `{items: [...]}` |
 | DELETE | `/plants/{id}/limits/{key}` | same | Revert one parameter to its default limits |
@@ -481,6 +499,7 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - `tests/conftest.py`: the app runs against `smayaa_test` as **`smayaa_app`**, so RLS is active in tests. The schema is migrated once per run (as the owner). After each test, tenant tables are truncated.
 - `tests/helpers.py`: `make_company`, `make_plant`, `make_user`, `make_tenant` (company + 2 plants + admin/manager/operator; manager and operator at plant A only), `with_template` (applies the default template), `login`. Test data is written as the owner role.
 - Step 2 tests: `test_engine` (evaluator incl. unsafe expressions, statuses, calculation order, rule helpers), `test_template` (the template is valid; companies get it; re-applying adds nothing), `test_config_api` (formula validation, cycles, reserved keys, versioning, deactivation blocked by dependents, rules, modules, treatments, tenant users get 403), `test_limits` (manager edits, operator 403, company-admin fallback, plant/company isolation, settings, RLS).
+- Time functions and KPIs: `test_engine` (change/rate/avg/total/event functions, minimum span, required references, coalesce), `test_template` (trend KPIs from a sample history, every rule decidable with history, sample snapshot predicts only TH-P02, update to latest template), `test_readings::test_trend_kpis_and_predictions_use_the_plant_history` (ΔP rate, time to clean and FLT-P01 from stored history).
 - Step 3 tests (`test_readings`): saving and merging (two users, different fields), no-op saves, validation, clearing values, **history unchanged after a formula change**, preview stores nothing, latest/history filters, permissions (company admin view-only, super admin 403, operator profile), alerts (severity, direction, treatment, fallback, modules affected; a limit change clears an alert; manager and operator see the same), module screens (layout from configuration, Filter/Thermal react to chemistry, insufficient data, **a new calculation appears in a module without code changes**), and the database layer (readings can't be updated/deleted; other companies and the platform see none).
 - Step 5 tests (`test_operator_profiles_and_audit`): manager lists/restricts/resets operators and it is enforced on modules and saving; unknown modules rejected; other plants, self and other companies refused; operators and company admins get 403; audit log scoped per company, platform sees all and filters; plant users get 403. `test_create_platform_admin`: the CLI command.
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.

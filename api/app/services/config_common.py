@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
 from app.core.errors import NotFoundError, ValidationFailedError
-from app.engine.calculation import BASE, calculate, statuses_for
-from app.engine.evaluator import Expression, ExpressionError, parse
+from app.engine.calculation import BASE, calculate, parse_formula, statuses_for
+from app.engine.evaluator import Expression, ExpressionError
 from app.engine.status import Limits, Status
 from app.models import Company, Parameter
 
@@ -46,7 +46,7 @@ def parsed_formulas(parameters: Iterable[Parameter]) -> dict[str, Expression]:
     for p in parameters:
         if p.kind == "calculated" and p.formula:
             try:
-                formulas[p.key] = parse(p.formula)
+                formulas[p.key] = parse_formula(p.formula)
             except ExpressionError:
                 continue  # validated on save; a bad stored formula just yields no value
     return formulas
