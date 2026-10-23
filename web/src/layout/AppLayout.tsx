@@ -1,8 +1,8 @@
 import { NavLink, Outlet } from 'react-router'
 
 import { useAuth } from '../auth/useAuth'
-import { AlertBar } from '../components/AlertBar'
 import { menuFor, roleLabel } from '../navigation'
+import { NotificationBell } from '../notifications/NotificationBell'
 import type { MenuItem } from '../navigation'
 import { usePlantData } from '../plant/usePlantData'
 
@@ -13,7 +13,7 @@ export function AppLayout() {
   const { modules } = usePlantData()
   if (!me) return null
   const items = menuFor(me.permissions)
-  const showAlertBar = Boolean(plant) && can('alerts.view')
+  const showBell = Boolean(plant) && can('alerts.view')
 
   return (
     <div className="app">
@@ -75,6 +75,7 @@ export function AppLayout() {
             )}
           </div>
           <div className="topbar__user">
+            {showBell && plant && <NotificationBell key={`${me.id}:${plant.id}`} userId={me.id} plantId={plant.id} />}
             <span>
               {me.full_name || me.username}
               <span className="role-badge">{me.roles.map(roleLabel).join(', ')}</span>
@@ -84,7 +85,6 @@ export function AppLayout() {
             </button>
           </div>
         </header>
-        {showAlertBar && <AlertBar />}
         <main className="content">
           <Outlet />
         </main>

@@ -78,6 +78,8 @@ export interface WidgetView {
   type: string
   title: string
   tiles: Tile[] | null
+  /** Tile keys drawn as on/off switches (input_group). */
+  switches?: string[] | null
   problems: PredictedProblem[] | null
   insufficient_rules: string[] | null
   alerts: Alert[] | null
@@ -114,6 +116,8 @@ export interface ModuleView {
 export interface PlantAlerts {
   reading: ReadingSummary | null
   alerts: Alert[]
+  /** Predicted problems for the notification bell (empty when the profile hides alerts). */
+  problems: PredictedProblem[]
 }
 
 export interface Reading extends ReadingSummary {

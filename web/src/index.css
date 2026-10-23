@@ -377,71 +377,189 @@ h2 {
   color: var(--muted);
 }
 
-/* --- Alert bar (top of every page) --- */
-.alert-bar {
-  border-bottom: 1px solid var(--border);
-  font-size: 0.9rem;
+/* --- Notification bell (top bar, every page) --- */
+.notify {
+  position: relative;
 }
 
-.alert-bar--ok {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.5rem 1.5rem;
-  background: var(--good-bg);
-  color: var(--good);
-}
-
-.alert-bar--medium {
-  background: var(--warn-bg);
-}
-
-.alert-bar--high {
-  background: var(--bad-bg);
-}
-
-.alert-bar__summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 1rem;
-  width: 100%;
-  padding: 0.55rem 1.5rem;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  color: var(--text);
-  text-align: left;
+.notify__bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
   cursor: pointer;
 }
 
-.alert-bar--high strong {
-  color: var(--bad);
-}
-
-.alert-bar--medium strong {
+.notify__bell--medium {
   color: var(--warn);
+  border-color: #f0d9a8;
 }
 
-.alert-bar__items {
-  flex: 1;
-  min-width: 12rem;
+.notify__bell--high {
+  color: var(--bad);
+  border-color: #f3c4c4;
 }
 
-.alert-bar__meta {
+/* Blinks until the user opens the panel; a new alert starts it again. */
+.notify__bell--blink {
+  animation: notify-blink 1s ease-in-out infinite;
+}
+
+.notify__bell--blink.notify__bell--high {
+  animation-name: notify-blink-high;
+}
+
+@keyframes notify-blink {
+  50% {
+    background: var(--warn-bg);
+    box-shadow: 0 0 0 6px rgba(183, 121, 31, 0.18);
+  }
+}
+
+@keyframes notify-blink-high {
+  50% {
+    background: var(--bad-bg);
+    box-shadow: 0 0 0 6px rgba(207, 34, 46, 0.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notify__bell--blink,
+  .notify__bell--blink.notify__bell--high {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(207, 34, 46, 0.35);
+  }
+}
+
+.notify__badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.15rem;
+  text-align: center;
+}
+
+.notify__bell--medium .notify__badge {
+  background: var(--warn);
+}
+
+.notify__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  z-index: 30;
+  width: min(30rem, calc(100vw - 2rem));
+  max-height: 75vh;
+  overflow-y: auto;
+  padding: 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(11, 31, 58, 0.18);
+  text-align: left;
+}
+
+.notify__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.notify__section + .notify__section {
+  margin-top: 1rem;
+}
+
+.notify__section h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  color: var(--navy);
+}
+
+.notify__empty {
+  margin: 0.5rem 0;
+}
+
+/* --- On/off switch (Indication row) --- */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.switch:disabled {
+  cursor: default;
+}
+
+.switch__track {
+  position: relative;
+  width: 3rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: #c7cfdb;
+  transition: background 0.15s;
+}
+
+.switch__knob {
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+
+.switch--on .switch__track {
+  background: var(--good);
+}
+
+.switch--on .switch__knob {
+  transform: translateX(1.4rem);
+}
+
+.switch--unknown .switch__track {
+  background: #e3e7ee;
+}
+
+.switch__text {
+  font-weight: 700;
   color: var(--muted);
-  font-size: 0.8rem;
 }
 
-.alert-bar__toggle {
-  color: var(--blue);
-  font-weight: 600;
+.switch--on .switch__text {
+  color: var(--good);
 }
 
-.alert-bar__details {
-  display: grid;
-  gap: 0.75rem;
-  padding: 0 1.5rem 1rem;
+.switch:focus-visible .switch__track {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 
 /* --- Module screens --- */

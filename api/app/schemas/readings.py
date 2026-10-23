@@ -108,6 +108,9 @@ class WidgetView(BaseModel):
     type: str
     title: str = ""
     tiles: list[Tile] | None = None
+    switches: list[str] | None = Field(
+        default=None, description="Tile keys shown as on/off switches (input_group)"
+    )
     problems: list[PredictedProblem] | None = None
     insufficient_rules: list[str] | None = Field(
         default=None, description="Rule codes that cannot be evaluated (missing data/config)"
@@ -139,8 +142,11 @@ class ModuleView(BaseModel):
 
 
 class PlantAlerts(BaseModel):
+    """For the notification bell: what is out of range and which problems are predicted."""
+
     reading: ReadingSummary | None
     alerts: list[Alert]
+    problems: list[PredictedProblem] = Field(default_factory=list)
 
 
 class Preview(BaseModel):

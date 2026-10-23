@@ -26,7 +26,7 @@ export function TilesWidget({ widget }: WidgetProps) {
       ) : (
         <div className="tile-cards">
           {tiles.map((tile) => (
-            <TileCard key={tile.key} tile={tile} />
+            <TileCard key={tile.key} tile={tile} asSwitch={widget.switches?.includes(tile.key) ?? false} />
           ))}
         </div>
       )}

@@ -98,12 +98,12 @@ PARAMETERS = [
     P("tout", "Outlet turbidity", "NTU", "filter", 2, precision=1),
     P("tssin", "Inlet TSS", "mg/L", "filter", 15, precision=1),
     P("tssout", "Outlet TSS", "mg/L", "filter", 3, precision=1),
-    P("clean", "Cleaning / backwash active (1 = yes)", "", "filter", 0, precision=0),
+    P("clean", "Cleaning / backwash active", "", "indication", 0, precision=0),
     P("bwf", "Backwash flow", "m³/h", "filter", 30, precision=1),
-    P("bwt", "Backwash time", "min", "filter", 6, precision=1),
+    P("bwt", "Backwash time", "min", "indication", 6, precision=1),
     P("oil", "Oil in water", "mg/L", "filter", 0, precision=1),
-    P("valve", "Bypass valve open (1 = yes)", "", "filter", 0, precision=0),
-    P("sspump", "Side-stream pump running (1 = yes)", "", "filter", 1, precision=0),
+    P("valve", "Bypass valve open", "", "indication", 0, precision=0),
+    P("sspump", "Side-stream pump running", "", "indication", 1, precision=0),
     # Calculated: chemistry
     P("lsi", "LSI (demo formula)", "", "chemistry", limits=(-1, -0.5, 0.8, 1.5),
       formula="ph - 7.6 + (hard - 400) / 800 + (alk - 250) / 600"),
@@ -298,10 +298,15 @@ MODULES = [
         "water_chemistry",
         "Input Parameters",
         [
-            {"type": "alert_list", "title": "Alerts"},
             {"type": "input_group", "title": "Chemistry", "group": "chemistry"},
             {"type": "input_group", "title": "Thermal", "group": "thermal"},
             {"type": "input_group", "title": "Side-stream filter", "group": "filter"},
+            {
+                "type": "input_group",
+                "title": "Indication",
+                "params": ["clean", "valve", "sspump", "bwt"],
+                "switches": ["clean", "valve", "sspump"],
+            },
             {
                 "type": "value_tiles",
                 "title": "Calculated values",
@@ -313,12 +318,6 @@ MODULES = [
         "filter",
         "Side-Stream Filtration",
         [
-            {
-                "type": "text_note",
-                "text": "Is the side-stream filter removing solids correctly, how fast is it "
-                "loading, when will cleaning be needed, and is cleaning using more water than "
-                "necessary?",
-            },
             {
                 "type": "value_tiles",
                 "title": "Filtration KPIs",
@@ -349,12 +348,6 @@ MODULES = [
         "thermal",
         "Thermal Efficiency",
         [
-            {
-                "type": "text_note",
-                "text": "Under the present wet-bulb, process load, circulating flow and fan "
-                "condition, is the tower cooling as well as it should, and what problem is "
-                "developing next?",
-            },
             {
                 "type": "value_tiles",
                 "title": "Thermal KPIs",

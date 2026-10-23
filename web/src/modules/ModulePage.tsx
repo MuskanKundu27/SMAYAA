@@ -110,22 +110,14 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
     })
   }, [])
 
-  const commit = useCallback(
-    (key: string) => {
-      const text = drafts[key]
-      if (text === undefined) return
-      const parsed = parseInput(text)
-      if (!parsed.ok) {
-        showState(key, { kind: 'error', message: parsed.error })
-        dropDraft(key)
-        return
-      }
-      if (parsed.value === (saved[key]?.value ?? null)) {
+  const save = useCallback(
+    (key: string, value: number | null) => {
+      if (value === (saved[key]?.value ?? null)) {
         dropDraft(key) // nothing changed: nothing to save
         return
       }
       showState(key, { kind: 'saving' })
-      saveReading(plantId, { [key]: parsed.value })
+      saveReading(plantId, { [key]: value })
         .then(() => {
           showState(key, { kind: 'saved' })
           window.setTimeout(() => showState(key, null), SAVED_BADGE_MS)
@@ -138,7 +130,22 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
           dropDraft(key)
         })
     },
-    [drafts, plantId, saved, showState, dropDraft, refresh],
+    [plantId, saved, showState, dropDraft, refresh],
+  )
+
+  const commit = useCallback(
+    (key: string) => {
+      const text = drafts[key]
+      if (text === undefined) return
+      const parsed = parseInput(text)
+      if (!parsed.ok) {
+        showState(key, { kind: 'error', message: parsed.error })
+        dropDraft(key)
+        return
+      }
+      save(key, parsed.value)
+    },
+    [drafts, showState, dropDraft, save],
   )
 
   const editing: ModuleEditing = useMemo(
@@ -148,11 +155,12 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
       setDraft,
       commit,
       cancel: dropDraft,
+      setValue: save,
       saveStates,
       // A preview only makes sense while something is being typed.
       preview: Object.keys(drafts).length > 0 ? preview : {},
     }),
-    [view, drafts, setDraft, commit, dropDraft, saveStates, preview],
+    [view, drafts, setDraft, commit, dropDraft, save, saveStates, preview],
   )
 
   if (error) return <div className="card form-error">{error}</div>
@@ -166,7 +174,6 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
           {view.reading
             ? `Last updated by ${view.reading.created_by?.name ?? 'unknown'} at ${formatTime(view.reading.recorded_at)}`
             : 'No readings yet.'}
-          {view.can_edit_readings && ' · Changes save automatically when you leave a field or press Enter.'}
         </p>
       </div>
       {view.widgets.map((widget, index) => {

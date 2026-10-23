@@ -174,6 +174,8 @@ class InputGroupWidget(_Widget):
     type: Literal["input_group"]
     group: str | None = None
     params: Keys | None = None
+    # On/off inputs (1 = on, 0 = off) drawn as switches instead of number boxes.
+    switches: Keys | None = None
 
     @model_validator(mode="after")
     def needs_group_or_params(self) -> "InputGroupWidget":

@@ -19,7 +19,7 @@ New to the project or to SaaS development? Read [LEARNING_JOURNAL.md](LEARNING_J
 | 1b – Web app shell (login page, role-based menu, plant switcher, placeholder pages) | Done |
 | 2 – Configuration engine (safe evaluator, parameters, formulas, limits, treatments, rules, modules, template) | Done (API) |
 | 3 – Readings and alerts (readings as events, merge on save, preview, alerts, predicted problems, module screens) | Done (API) |
-| 4 – Module renderer (React widget registry, module screens, autosave + live preview, alert bar, polling) | Done (first version; visual design to be aligned with the original demo) |
+| 4 – Module renderer (React widget registry, module screens, autosave + live preview, notification bell, polling) | Done (first version; visual design to be aligned with the original demo) |
 | 5 – Management screens (Users, Plants, Limits + plant settings, Operator profiles, Companies, Configuration editors with live tests, Audit log) | Done (first version) |
 | Production deployment (single Ubuntu server, section 14) | Deployed and verified in both modes: Caddy (fresh server) and nginx (shared server next to another site, custom API port) |
 
@@ -90,11 +90,13 @@ web/                      Frontend (React 19 + TypeScript + Vite + react-router 
     modules/editing.ts    ModuleEditing context shared by widgets (drafts, commit, preview)
     modules/widgets.tsx   Widget components (tiles, inputs summary, problems, alerts, trend, note)
     modules/registry.ts   Widget registry: widget type → component (+ UnknownWidget fallback)
-    components/           TileCard, StatusPill, RangeBar, AlertBar
+    components/           TileCard (number box, or on/off switch), StatusPill, RangeBar
+    notifications/        NotificationBell (top-bar bell + panel), seen.ts (which notifications
+                          were already opened, per user and plant, in localStorage)
     format.ts             Display helpers (numbers, times, limits text, range bar, input parsing)
     navigation.ts         Fixed menu pages and the permission each needs (modules come from API);
                           manageableRoles (from users.manage:<role>), roleNeedsPlant
-    layout/AppLayout.tsx  Sidebar (modules from API + fixed pages), top bar, alert bar
+    layout/AppLayout.tsx  Sidebar (modules from API + fixed pages), top bar with the notification bell
     pages/                LoginPage, HomePage, StatusPages (NoAccess, NotFound)
     *.test.ts             vitest tests
 ```
@@ -313,7 +315,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
 - **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used).
 - **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
-- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`), `value_tiles`, `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles`, `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
 - **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
@@ -322,7 +324,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   - **Inputs (31):** chemistry (pH, conductivity, TDS, hardness, alkalinity, silica, microbial count); thermal (supply/return temperature, wet-bulb, circulating flow, fan power, fan speed, pump speed, pump power, pump discharge pressure, process load); side-stream filter (inlet/outlet pressure, side-stream flow, inlet/outlet turbidity, inlet/outlet TSS, cleaning/backwash status, backwash flow and time, oil-in-water, bypass valve status, side-stream pump status). Optional inputs have no limits; on/off inputs use 1 = yes.
   - **Calculated (21):** LSI (demo); thermal: range, approach, heat load, expected approach (**demo model**: clean baseline scaled for process load and fan speed), approach residual (actual − expected), fan response (6 h), specific fan energy; filter: ΔP, removal efficiency, ΔP rate of change, ΔP forecast 6 h / 24 h, time to clean (P50, to 1.2 bar), solids load proxy, cleanings and average cleaning interval (7 days), time since last cleaning, ΔP recovery, water per cleaning, m³ treated per cleaning (7 days). Trend KPIs use the time functions.
   - **Rules (13):** FLT-P01..P07 and TH-P01..P06 as named in the note. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
-  - **Modules (3):** Input Parameters (key `water_chemistry`, data entry), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes).
+  - **Modules (3):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.
   - 20 treatments (flagged `needs_review`) and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
 - `services/templates.apply_template(db, company, template, actor_id, update_existing=False)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits. With **`update_existing=True`** ("update to the latest template") it also refreshes the template's own existing parameters (label, unit, group, formula with a version bump, precision, default limits), rules (title, expressions with a version bump, action, affected modules) and modules (title, layout). Items the company added itself and treatments are never touched; the change is audited.
 - `POST /companies` applies the default template automatically. `POST /companies/{id}/apply-template` re-applies it (adds anything missing); `?update_existing=true` updates to the latest template. The dev seed applies it to Demo Power Ltd.
@@ -350,7 +352,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - `GET .../readings/latest` returns the newest reading (or `null`); screens poll it and reload when the id changes. `GET .../readings?from=&to=&limit=&offset=` returns history, newest first, **with values exactly as stored** at save time. So changing a formula never rewrites history (tested).
 
 ### 8.6f Plant state, alerts, predicted problems (`services/plant_state.py`)
-`build_state(db, plant, inputs, now=None)` is the one function that turns input values into a `PlantState`: active parameters, effective limits, all values (inputs + calculated with **current** formulas and baseline) and statuses. `now` is the moment the inputs belong to (the latest reading's time for live screens; the current time for saving and preview). If any active formula or rule uses time functions, `load_history` loads the plant's readings from the needed window before `now` (newest 5,000 at most) and passes them to the calculation and the rule helpers. Saving a reading stores calculated values computed with that history too. The alert bar, module screens and preview all use it, so they always agree. Live screens therefore reflect formula, limit or baseline changes immediately, while history keeps the stored values.
+`build_state(db, plant, inputs, now=None)` is the one function that turns input values into a `PlantState`: active parameters, effective limits, all values (inputs + calculated with **current** formulas and baseline) and statuses. `now` is the moment the inputs belong to (the latest reading's time for live screens; the current time for saving and preview). If any active formula or rule uses time functions, `load_history` loads the plant's readings from the needed window before `now` (newest 5,000 at most) and passes them to the calculation and the rule helpers. Saving a reading stores calculated values computed with that history too. The notification bell, module screens and preview all use it, so they always agree. Live screens therefore reflect formula, limit or baseline changes immediately, while history keeps the stored values.
 - **Alerts** (`alerts(db, state)`): every parameter whose status is `warn` (severity `medium`) or `bad` (severity `high`), with value, unit, direction, limits, cause/treatment/precautions from `treatments` (or `FALLBACK_TREATMENT`), `needs_review`, and **modules affected**. Sorted most severe first.
 - **Modules affected** (`affected_modules`) are worked out from configuration, not hard-coded. A module is affected by parameter X if:
   - it shows X or any calculation that (indirectly) uses X; or
@@ -366,7 +368,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 
   | Widget | Data returned |
   |---|---|
-  | `input_group` | tiles for the group's (or listed) input parameters; `editable` if the user may save readings |
+  | `input_group` | tiles for the group's (or listed) input parameters; `editable` if the user may save readings; `switches` passed through |
   | `value_tiles`, `inputs_summary` | tiles for listed parameters |
   | `predicted_problems` | matched problems for the listed rules + `insufficient_rules` |
   | `alert_list` | current alerts (optionally filtered by `modules`/`params`) |
@@ -374,7 +376,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   | `text_note` | the text |
 
   A tile has key, label, unit, precision, kind, value, status (`good|warn|bad|na`), direction, limits, editable, and `insufficient_data` (true when the parameter is missing or inactive). This is how widgets **degrade gracefully** instead of failing.
-- `GET /plants/{id}/alerts` is for the alert bar: the latest reading's summary ("saved by X at …") + alerts. Needs `alerts.view`; empty if an operator profile has `show_alerts = false`.
+- `GET /plants/{id}/alerts` is for the notification bell: the latest reading's summary ("saved by X at …"), the alerts, and the matched predicted problems. Needs `alerts.view`; alerts and problems are both empty if an operator profile has `show_alerts = false`.
 - The super admin has none of these permissions, and RLS gives the platform path no access to readings.
 
 ### 8.7 Web ↔ API
@@ -394,7 +396,8 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **Escape** cancels the draft.
   - **After a save:** the typed text is kept until the refreshed screen arrives (no flicker), and errors are shown on the tile.
   - The header shows "Last updated by X at HH:MM".
-- **Alert bar** (`components/AlertBar.tsx`): on every page for users with `alerts.view` and a selected plant. It shows a green "all within range" or a count with the top alerts (↑/↓), plus who updated last. Expanding it shows each alert's limits, affected modules, cause/treatment/precautions, and a "sample guidance – to be reviewed" note when `needs_review`.
+- **Notification bell** (`notifications/NotificationBell.tsx`): in the top bar on every page for users with `alerts.view` and a selected plant. The badge shows how many alerts + predicted problems there are; the bell is red when any alert is high, amber otherwise. It **blinks while there is something the user hasn't opened yet** (`seen.ts`: ids like `alert:hard:warn` and `problem:TH-P02`, remembered per user and plant in localStorage; an alert that gets worse counts as new). Clicking opens a panel with each alert (limits, affected modules, cause/treatment/precautions, review note) and each predicted problem (probability, action, demo-heuristic note), plus who updated last. Closes on outside click or Escape. Respects reduced-motion settings.
+- **On/off switches:** an `input_group` widget may list `switches` (keys of on/off inputs, 1 = on, 0 = off). Those tiles draw as switches instead of number boxes; clicking saves the new value immediately (`ModuleEditing.setValue`).
 - **Management screens** (`admin/`), one per fixed menu entry; `App.tsx` maps each path in `MENU` to its page (`PAGES`):
   - **Users:** list in scope; create form offers only the roles from the caller's `users.manage:<role>` permissions (plant for plant roles; company for a platform admin creating a company admin); deactivate with confirmation, showing the API's warnings (e.g. "plant has no manager").
   - **Plants** (company admin): create, rename, deactivate/reactivate; calls `reloadMe()` afterwards so the plant switcher and forms see the change.
@@ -443,7 +446,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | POST | `/plants/{id}/readings/preview` | readings.write | Same body → tiles, alerts, problems; nothing stored |
 | GET | `/plants/{id}/readings/latest` | readings.read | Newest reading or `null` (for polling) |
 | GET | `/plants/{id}/readings` | readings.read | History, newest first; `from`, `to`, `limit`, `offset` |
-| GET | `/plants/{id}/alerts` | alerts.view | `{reading, alerts}` for the alert bar |
+| GET | `/plants/{id}/alerts` | alerts.view | `{reading, alerts, problems}` for the notification bell |
 | GET | `/plants/{id}/modules` | modules.view | Modules the user may open |
 | GET | `/plants/{id}/modules/{key}` | modules.view + readings.read | Widgets with their data (see 8.6g) |
 | GET | `/plants/{id}/operator-profiles` | operator_profiles.manage | Lower-ranked users at the plant (that the caller may manage) with their profile; `is_default` when no restrictions are stored |

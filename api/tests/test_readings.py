@@ -304,9 +304,14 @@ def test_water_chemistry_shows_editable_inputs_and_calculated_values(
 
     view = module(client, acme, "water_chemistry")
 
-    assert [w["type"] for w in view["widgets"]] == [
-        "alert_list", "input_group", "input_group", "input_group", "value_tiles",
+    assert [w["title"] for w in view["widgets"]] == [
+        "Chemistry", "Thermal", "Side-stream filter", "Indication", "Calculated values",
     ]  # fmt: skip
+    indication = next(w for w in view["widgets"] if w["title"] == "Indication")
+    assert [t["key"] for t in indication["tiles"]] == ["clean", "valve", "sspump", "bwt"]
+    assert indication["switches"] == ["clean", "valve", "sspump"]
+    filter_row = next(w for w in view["widgets"] if w["title"] == "Side-stream filter")
+    assert not {"clean", "bwt", "valve", "sspump"} & {t["key"] for t in filter_row["tiles"]}
     all_tiles = tiles(view)
     assert all_tiles["hard"] == all_tiles["hard"] | {
         "value": 650.0,
@@ -439,3 +444,21 @@ def test_trend_kpis_and_predictions_use_the_plant_history(
     assert kpis["ttc"]["value"] == pytest.approx(24, rel=0.02)  # (1.2 - 0.6) / 0.6 per day
     assert "FLT-P01" in [p["code"] for p in problems["problems"]]
     assert "FLT-P05" in problems["insufficient_rules"]  # no cleaning recorded yet
+
+
+def test_notification_includes_predicted_problems_unless_hidden(
+    client: TestClient, acme: Tenant, owner_db: Session
+) -> None:
+    first_reading(client, acme)  # sample hardness 650 > 600: fouling risk (TH-P02)
+    body = client.get(f"{base(acme)}/alerts", headers=login(client, "acme-operator")).json()
+    assert "TH-P02" in [p["code"] for p in body["problems"]]
+
+    owner_db.add(
+        OperatorProfile(
+            user_id=acme.operator.id, plant_id=acme.plant_a.id, company_id=acme.company_id,
+            show_alerts=False,
+        )
+    )  # fmt: skip
+    owner_db.commit()
+    hidden = client.get(f"{base(acme)}/alerts", headers=login(client, "acme-operator")).json()
+    assert hidden["alerts"] == [] and hidden["problems"] == []

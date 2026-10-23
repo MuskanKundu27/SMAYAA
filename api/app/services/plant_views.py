@@ -110,7 +110,12 @@ def _widget_view(
         keys = params or [
             k for k, p in state.params.items() if p.group_key == group and p.kind == "input"
         ]
-        return WidgetView(type=kind, title=title, tiles=[state.tile(k, editable) for k in keys])
+        return WidgetView(
+            type=kind,
+            title=title,
+            tiles=[state.tile(k, editable) for k in keys],
+            switches=widget.get("switches") or None,
+        )
     if kind in ("value_tiles", "inputs_summary"):
         return WidgetView(type=kind, title=title, tiles=[state.tile(k) for k in params])
     if kind == "predicted_problems":
@@ -184,7 +189,8 @@ def _alerts_for(
 
 
 def plant_alerts(db: Session, principal: Principal, plant_id: uuid.UUID) -> PlantAlerts:
-    """For the alert bar at the top of every page."""
+    """For the notification bell at the top of every page: alerts and predicted problems.
+    An operator whose profile hides alerts gets neither."""
     principal.require("alerts.view")
     plant = get_plant_in_scope(db, principal, plant_id)
     reading = latest_reading(db, plant.id)
@@ -192,6 +198,10 @@ def plant_alerts(db: Session, principal: Principal, plant_id: uuid.UUID) -> Plan
         db, plant, reading.input_values if reading else {},
         reading.recorded_at if reading else None,
     )  # fmt: skip
+    profile = operator_profile(db, principal, plant.id)
+    hidden = profile is not None and not profile.show_alerts
     return PlantAlerts(
-        reading=summary(db, reading), alerts=_alerts_for(db, principal, plant.id, state)
+        reading=summary(db, reading),
+        alerts=_alerts_for(db, principal, plant.id, state),
+        problems=[] if hidden or reading is None else predicted_problems(db, state).matched,
     )

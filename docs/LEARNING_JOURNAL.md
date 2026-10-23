@@ -533,6 +533,28 @@ Companies created earlier still had the old screens, because "apply template" on
 
 ---
 
+## Entry 15 – Notifications, on/off switches and a cleaner input page (2026-10-23)
+
+**What we did**
+- **A notification bell instead of the alert strip.** The coloured strip across every page is gone. A bell in the top bar shows a number (how many alerts and predicted problems there are). It **blinks** when something new appears, and stops once you open it. Clicking it shows each alert with its likely cause, treatment and precautions, and each predicted problem with its probability and recommended action.
+- **The input page no longer shows alerts**, so it is just for entering values.
+- **A new "Indication" row** on the input page groups the on/off states (cleaning/backwash active, bypass valve open, side-stream pump running) together with the backwash time. The on/off ones are **switches** you click, instead of boxes where you type 0 or 1.
+- **The menu stays fixed** while you scroll, and some explanatory question lines and the "changes save automatically" hint were removed to keep the screens clean.
+
+**How "blink until opened" works**
+Every alert and every predicted problem gets a short id, for example `alert:hard:warn` or `problem:TH-P02`. When you open the bell, the browser remembers the ids you have seen. The bell blinks only if a current id is not in that list. So an alert that gets worse (`warn` → `bad`) has a new id and makes the bell blink again. The list is kept in the browser (`localStorage`) per user and plant; if the browser forgets it, the worst case is that the bell blinks once more.
+
+**Switches are a general building block, not a special case**
+We did not write code just for "bypass valve". Any input widget can now say which of its inputs are on/off switches (`"switches": ["clean", "valve", "sspump"]`). Underneath, the value is still a number (1 = on, 0 = off), so limits, rules and history work exactly as before.
+
+**What to learn**
+- A notification should **draw attention to what is new**, not shout the same thing all day. "Blink until opened" respects the user's attention.
+- Keep data entry screens calm: one job per screen.
+- Accessibility matters: the bell has a text label for screen readers, and people who turn off animations in their system settings get a steady highlight instead of blinking.
+- Prefer a small option on an existing widget over a brand-new feature.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -615,3 +637,7 @@ Companies created earlier still had the old screens, because "apply template" on
 | **Integral (total over time)** | Adding up a flow over time, e.g. m³/h over 7 days gives m³. |
 | **Forecast** | An estimate of a future value, here by extending the current trend. |
 | **Coalesce** | "Use the first value that exists", a fallback for missing data. |
+| **Notification badge** | The small number on an icon showing how many items need attention. |
+| **Toggle / switch** | A control with two states (on/off) that you click instead of typing. |
+| **localStorage** | A small storage area in the browser for remembering simple things between visits. |
+| **Reduced motion** | A system setting for people who are bothered by animations; good apps respect it. |

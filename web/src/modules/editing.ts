@@ -14,6 +14,8 @@ export interface ModuleEditing {
   commit: (key: string) => void
   /** Cancel the draft (Escape). */
   cancel: (key: string) => void
+  /** Save a value right away without typing (on/off switches). */
+  setValue: (key: string, value: number | null) => void
   saveStates: Record<string, SaveState>
   /** Live preview tiles while typing (only this user sees them); key → tile. */
   preview: Record<string, Tile>
@@ -25,6 +27,7 @@ export const ModuleEditingContext = createContext<ModuleEditing>({
   setDraft: () => {},
   commit: () => {},
   cancel: () => {},
+  setValue: () => {},
   saveStates: {},
   preview: {},
 })
