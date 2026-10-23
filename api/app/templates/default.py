@@ -128,33 +128,12 @@ PARAMETERS = [
               " change('appr', 6) / change('fan', 6))", precision=3),
     P("sfe", "Specific fan energy", "kW per MW", "thermal", formula="fan / heat * 1000",
       precision=1),
-    # Prediction targets (3.3) and example output (3.5).
-    P("tth", "Time to high-approach threshold (P50)", "h", "thermal",
-      formula="max(0, (setting('high_approach_threshold') - appr) / max(rate('appr', 24), 0))",
-      precision=0),
-    P("ttlf", "Time to low-flow threshold", "h", "thermal",
-      formula="max(0, (flow - setting('low_flow_threshold')) / max(-rate('flow', 24), 0))",
-      precision=0),
-    # Weighted: the four core thermal signals count double.
-    P("coverage", "Weighted data coverage", "%", "thermal", limits=(50, 70, 100, 100),
-      formula="(2 * (known('ts') + known('tr') + known('wbt') + known('flow'))"
-              " + known('fan') + known('fanspd') + known('pumpspd') + known('pumppow')"
-              " + known('pumpp') + known('load') + max(known('tin'), known('tssin'))) / 15 * 100",
-      precision=0),
-    P("thealth", "Thermal health (demo score)", "%", "thermal", limits=(50, 70, 100, 100),
-      formula="max(0, min(100, 100 - 14 * max(0, resid)))", precision=0),
     # Calculated: side-stream filtration KPIs
     P("dp", "Filter ΔP", "bar", "filter", limits=(0, 0, 0.8, 1.2), formula="pin - pout"),
     P("rem", "Removal efficiency", "%", "filter", limits=(50, 70, 100, 100),
       formula="(tin - tout) / tin * 100", precision=1),
     P("dprate", "ΔP rate of change", "bar/day", "filter", formula="rate('dp', 24) * 24",
       precision=3),
-    P("dpf2", "ΔP forecast (2 h)", "bar", "filter", formula="dp + dprate / 12"),
-    P("dpf6", "ΔP forecast (6 h)", "bar", "filter", formula="dp + dprate / 4"),
-    P("dpf24", "ΔP forecast (24 h)", "bar", "filter", formula="dp + dprate"),
-    # Time until ΔP reaches 1.2 bar at the current loading rate (no value when not loading).
-    P("ttc", "Time to clean (P50)", "h", "filter",
-      formula="max(0, (1.2 - dp) / max(dprate, 0) * 24)", precision=0),
     P("solids", "Solids load proxy", "kg/h", "filter",
       formula="ssflow * coalesce(tssin, tin) / 1000", precision=2),
     P("cleancount", "Cleanings (7 days)", "", "filter", formula="events('clean', 168)",
@@ -164,17 +143,7 @@ PARAMETERS = [
       precision=0),
     P("dprec", "ΔP recovery (last cleaning)", "bar", "filter",
       formula="before_event('dp', 'clean') - after_event('dp', 'clean')"),
-    P("dppost", "Post-clean ΔP (last cleaning)", "bar", "filter",
-      formula="after_event('dp', 'clean')"),
-    P("dpexp", "Expected post-clean ΔP", "bar", "filter", formula="setting('clean_dp_baseline')"),
-    P("ttq", "Time to quality limit", "h", "filter",
-      formula="max(0, (setting('outlet_turbidity_limit') - tout) / max(rate('tout', 24), 0))",
-      precision=0),
     P("bw", "Water per cleaning", "m³", "filter", formula="bwf * bwt / 60", precision=1),
-    P("wexp", "Expected minimum water per cleaning", "m³", "filter",
-      formula="setting('min_water_per_clean')", precision=1),
-    P("wsave", "Water savings opportunity (7 days)", "m³", "filter",
-      formula="max(0, bw - wexp) * events('clean', 168)", precision=1),
     P("treated", "m³ treated per cleaning (7 days)", "m³", "filter",
       formula="total('ssflow', 168) / events('clean', 168)", precision=0),
 ]  # fmt: skip
@@ -277,11 +246,13 @@ RULES = [
       "(off('dp') and rate('ssflow', 24) < 0) or coalesce(sspump, 1) < 0.5",
       "min(95, 30 + sev('dp'))", "Check strainer, pump and valves on the side-stream line.",
       ("filter",)),
-    R("FLT-P05", "Ineffective cleaning", "dprec < 0.15 or dppost > dpexp + 0.2",
+    R("FLT-P05", "Ineffective cleaning",
+      "dprec < 0.15 or after_event('dp', 'clean') > setting('clean_dp_baseline') + 0.2",
       "min(95, 40 + sev('dp') + min(20, 4 * coalesce(oil, 0)))",
       "Check backwash sequence and filter internals; check for oil fouling.", ("filter",)),
     R("FLT-P06", "Excessive cleaning water",
-      "(events('clean', 168) > 7 or bw > 1.5 * wexp) and not off('rem')",
+      "(events('clean', 168) > 7 or bw > 1.5 * setting('min_water_per_clean'))"
+      " and not off('rem')",
       "min(95, 20 + 5 * coalesce(events('clean', 168), 0))",
       "Review the backwash trigger and sequence; save water.", ("filter",)),
     R("FLT-P07", "Low ΔP with high outlet turbidity",
@@ -354,13 +325,12 @@ MODULES = [
             {
                 "type": "value_tiles",
                 "title": "Filtration KPIs",
-                "params": ["dp", "rem", "dprate", "solids", "ttq"],
+                "params": ["dp", "rem", "dprate", "solids"],
             },
             {
                 "type": "value_tiles",
                 "title": "Cleaning",
-                "params": ["ttc", "dpf2", "dpf6", "dpf24", "cleancount", "cleanint", "dprec",
-                           "dppost", "dpexp", "bw", "wexp", "wsave", "treated"],
+                "params": ["cleancount", "cleanint", "dprec", "bw", "treated"],
             },
             {"type": "trend_chart", "title": "Filter ΔP (7 days)", "params": ["dp"], "hours": 168},
             {
@@ -387,11 +357,6 @@ MODULES = [
                 "params": ["appr", "expappr", "resid", "range", "heat", "fanresp", "sfe"],
             },
             {
-                "type": "value_tiles",
-                "title": "Thermal status",
-                "params": ["coverage", "thealth", "tth", "ttlf"],
-            },
-            {
                 "type": "trend_chart",
                 "title": "Approach and residual (7 days)",
                 "params": ["appr", "resid"],
@@ -408,8 +373,7 @@ MODULES = [
                 "type": "text_note",
                 "text": "Expected approach is a demo model: the plant's clean baseline approach "
                 "scaled for heat load (or process load), fan speed, flow and wet-bulb against "
-                "the plant's design values. Approach residual = actual minus expected. "
-                "Thermal health is a demo score.",
+                "the plant's design values. Approach residual = actual minus expected.",
             },
         ],
     ),
@@ -430,11 +394,8 @@ DEFAULT_TEMPLATE = Template(
         "design_heat_load": 9304.0,
         "design_flow": 1000.0,
         "design_wbt": 26.0,
-        "high_approach_threshold": 6.0,
-        "low_flow_threshold": 700.0,
         "clean_dp_baseline": 0.2,
         "min_water_per_clean": 2.5,
-        "outlet_turbidity_limit": 5.0,
     },
 )
 

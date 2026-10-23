@@ -443,7 +443,6 @@ def test_trend_kpis_and_predictions_use_the_plant_history(
     problems = next(w for w in view["widgets"] if w["type"] == "predicted_problems")
 
     assert kpis["dprate"]["value"] == pytest.approx(0.6, rel=0.01)
-    assert kpis["ttc"]["value"] == pytest.approx(24, rel=0.02)  # (1.2 - 0.6) / 0.6 per day
     assert "FLT-P01" in [p["code"] for p in problems["problems"]]
     assert "FLT-P05" in problems["insufficient_rules"]  # no cleaning recorded yet
 

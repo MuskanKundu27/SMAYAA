@@ -575,6 +575,9 @@ Many targets compare against a plant-specific number: "how long until the approa
 - `event_interval('clean')`: hours between the last two cleanings.
 - `known('wbt')`: 1 if a value exists, else 0. Used to score data coverage: "how many of the inputs this model needs do we actually have?"
 
+**Later the same day: only what the note asks for**
+After reviewing the screens, the owner decided the modules should show **only the KPIs listed in the note** (sections 3.2 and 4.2), nothing extra. So we removed the extra numbers we had derived from the prediction targets (forecasts, "time to …", expected values, coverage, health). The predictions still use the same logic internally; they read the plant settings directly instead of showing extra tiles. Lesson: build what the specification asks for, and check with the owner before adding "nice to have" items.
+
 **What to learn**
 - When a specification exists, check against the real document, not memory or screenshots. Small differences ("average interval" vs "time between events") change what users see.
 - Ask before removing things, and keep what the owner wants (here: chemistry).

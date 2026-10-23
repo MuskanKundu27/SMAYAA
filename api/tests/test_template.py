@@ -106,14 +106,10 @@ def test_trend_kpis_use_history() -> None:
     assert values["dprate"] == 0.0  # flat ΔP over the day
     assert values["cleancount"] == 1.0
     assert values["cleanint"] is None  # one cleaning: no interval between two yet
-    assert values["dppost"] == pytest.approx(0.6)  # sample ΔP after the cleaning
-    assert values["wsave"] == pytest.approx(0.5)  # (3 - 2.5) m³ for 1 cleaning
-    assert values["coverage"] == 100.0
-    assert values["thealth"] == 86.0  # 100 - 14 * residual 1.0
     assert values["dprec"] == pytest.approx(0.0)  # sample ΔP is the same before and after
     assert values["treated"] == pytest.approx(50 * 48)  # 50 m³/h for 48 h, one cleaning
     assert values["expappr"] == BASELINE  # load and fan at 100 %
-    assert values["ttc"] is None  # not loading, so no time to clean
+    assert values["resid"] == 1.0
 
 
 def test_module_layouts_are_valid_and_reference_existing_items() -> None:
