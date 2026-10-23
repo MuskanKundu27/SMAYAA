@@ -9,8 +9,18 @@ import type { LimitDraft as Draft } from './limits'
 import { ErrorText, Loading, Notice } from './ui'
 import { errorMessage, useLoad } from './useLoad'
 
+// Labels for plant settings shipped with the default template. Settings added by a company
+// without a label here are shown by their key.
 const SETTING_LABELS: Record<string, string> = {
   clean_baseline_approach: 'Clean baseline approach (°C) – expected approach when the tower is clean',
+  design_heat_load: 'Design heat load (kW)',
+  design_flow: 'Design circulating flow (m³/h)',
+  design_wbt: 'Design wet-bulb temperature (°C)',
+  high_approach_threshold: 'High-approach threshold (°C)',
+  low_flow_threshold: 'Low-flow threshold (m³/h)',
+  clean_dp_baseline: 'Expected post-clean filter ΔP (bar)',
+  min_water_per_clean: 'Minimum water per cleaning (m³)',
+  outlet_turbidity_limit: 'Outlet turbidity quality limit (NTU)',
 }
 
 export function LimitsPage() {

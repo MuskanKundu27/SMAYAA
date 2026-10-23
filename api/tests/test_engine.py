@@ -299,3 +299,19 @@ def test_trends_need_readings_spanning_part_of_the_window() -> None:
     # 3 hours apart covers more than 10 % of a 24 h window.
     fns = time_fns([(21, {"dp": 0.3})], 24, {"dp": 0.6})
     assert fns.rate("dp", 24) == pytest.approx(0.1)
+
+
+def test_event_interval_is_time_between_the_last_two_starts() -> None:
+    points = [(0, {"clean": 1}), (1, {"clean": 0}), (9, {"clean": 1}), (10, {"clean": 0})]
+    assert time_fns(points, 12, {"clean": 0}).event_interval("clean") == 9
+    assert time_fns(points[:2], 12, {"clean": 0}).event_interval("clean") is None
+
+
+def test_setting_and_known_helpers() -> None:
+    expr = parse_formula("flow / setting('design_flow') + known('wbt')")
+    # setting names are not parameter keys; known() keys are references but optional.
+    assert expr.references == {"flow", "wbt"}
+    assert expr.required == {"flow"}
+    values = calculate({"flow": 500.0, "wbt": None}, {"x": expr}, settings={"design_flow": 1000})
+    assert values["x"] == 0.5
+    assert calculate({"flow": 500.0}, {"x": expr})["x"] is None  # no settings: no value

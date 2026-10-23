@@ -232,3 +232,22 @@ def test_rls_lets_only_the_platform_change_configuration(app_engine: Engine, acm
         ).rowcount  # type: ignore[attr-defined]
         session.rollback()
     assert changed == 0
+
+
+def test_plant_settings_come_from_the_template_and_feed_formulas(
+    client: TestClient, acme: Tenant
+) -> None:
+    headers = login(client, "acme-manager")
+    settings = client.get(settings_url(acme), headers=headers).json()["settings"]
+    assert settings["design_flow"] == {"value": 1000.0, "source": "company_default"}
+    assert settings["outlet_turbidity_limit"]["value"] == 5.0
+
+    client.put(settings_url(acme), json={"values": {"min_water_per_clean": 1.0}}, headers=headers)
+    client.post(
+        f"/api/v1/plants/{acme.plant_a.id}/readings",
+        json={"values": {"bwf": 30, "bwt": 6}},
+        headers=headers,
+    )
+    view = client.get(f"/api/v1/plants/{acme.plant_a.id}/modules/filter", headers=headers).json()
+    tiles = {t["key"]: t for w in view["widgets"] for t in (w.get("tiles") or [])}
+    assert tiles["wexp"]["value"] == 1.0  # the plant's own setting, via setting('...')

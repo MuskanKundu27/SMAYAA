@@ -123,11 +123,15 @@ MATH_FUNCTIONS: dict[str, Callable[..., Value]] = {
     "coalesce": _coalesce,
 }
 IF_ELSE = "if_else"
+# Helpers whose string arguments are not parameter keys: setting('design_flow') names a plant
+# setting, so it is neither validated as a parameter nor used for calculation order.
+NON_KEY_FUNCTIONS = frozenset({"setting"})
 
 # Names that can never be parameter keys.
 RESERVED_NAMES = frozenset(
     {*MATH_FUNCTIONS, IF_ELSE, "base", "value", "status", "off", "sev", "count_off"}
     | set(TIME_FUNCTIONS)
+    | {"setting", "known"}
     | {"and", "or", "not", "true", "false", "none", "True", "False", "None"}
 )
 
@@ -176,7 +180,7 @@ def parse(source: str, functions: Mapping[str, Callable[..., Value]] | None = No
             if node.keywords:
                 raise ExpressionError("Keyword arguments are not allowed.")
             function_names.add(id(node.func))
-            if node.func.id in (functions or {}):
+            if node.func.id in (functions or {}) and node.func.id not in NON_KEY_FUNCTIONS:
                 references.update(_string_args(node))
         elif isinstance(node, ast.Constant) and not isinstance(node.value, int | float | str):
             raise ExpressionError(f"The value {node.value!r} is not allowed.")
@@ -194,7 +198,7 @@ def parse(source: str, functions: Mapping[str, Callable[..., Value]] | None = No
     )
 
 
-OPTIONAL_CONTEXT = frozenset({"coalesce", *TIME_FUNCTIONS})
+OPTIONAL_CONTEXT = frozenset({"coalesce", "known", *TIME_FUNCTIONS})
 
 
 def _required(node: ast.AST, helpers: set[str], optional: bool) -> set[str]:
@@ -205,7 +209,7 @@ def _required(node: ast.AST, helpers: set[str], optional: bool) -> set[str]:
         name = node.func.id
         inner_optional = optional or name in OPTIONAL_CONTEXT
         keys: set[str] = set()
-        if name in helpers and not inner_optional:
+        if name in helpers and name not in NON_KEY_FUNCTIONS and not inner_optional:
             keys |= _string_args(node)
         for arg in node.args:
             keys |= _required(arg, helpers, inner_optional)

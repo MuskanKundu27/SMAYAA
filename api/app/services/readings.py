@@ -18,7 +18,7 @@ from app.models import OperatorProfile, Parameter, Plant, Reading, User
 from app.schemas.common import PageParams
 from app.schemas.readings import Person, Preview, ReadingOut, ReadingSummary
 from app.services.config_common import active_parameters, parsed_formulas
-from app.services.limits import plant_setting
+from app.services.limits import plant_setting, plant_settings_values
 from app.services.plant_state import (
     BASELINE_SETTING,
     alerts,
@@ -95,6 +95,7 @@ def save_reading(
     base = plant_setting(db, plant, BASELINE_SETTING)
     now = datetime.now(UTC)
     history = load_history(db, plant, history_hours(formulas.values()), now)
+    settings = plant_settings_values(db, plant)
     reading = Reading(
         company_id=plant.company_id,
         plant_id=plant.id,
@@ -102,9 +103,9 @@ def save_reading(
         created_by=principal.user_id,
         source="manual",
         input_values=merged,
-        calculated_values=calculate(merged, formulas, base, history),
+        calculated_values=calculate(merged, formulas, base, history, settings),
         formula_versions={k: params[k].formula_version for k in formulas},
-        settings_used={BASELINE_SETTING: base},
+        settings_used={**settings, BASELINE_SETTING: base},
         changed_keys=changed,
     )
     db.add(reading)

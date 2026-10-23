@@ -234,8 +234,9 @@ function ParameterEditor({ companyId, parameter, onClose, onSaved }: EditorProps
           <small className="muted">
             Allowed: + − × ÷ ** ( ), comparisons, and/or/not, min max abs round sqrt log exp if_else
             coalesce. Over time: change(&apos;k&apos;, h), rate(&apos;k&apos;, h), avg, total, events(&apos;e&apos;, h),
-            hours_since(&apos;e&apos;), before_event(&apos;k&apos;, &apos;e&apos;), after_event(&apos;k&apos;, &apos;e&apos;) (h = hours;
-            e = an on/off input such as cleaning).
+            hours_since(&apos;e&apos;), event_interval(&apos;e&apos;), before_event(&apos;k&apos;, &apos;e&apos;), after_event(&apos;k&apos;, &apos;e&apos;)
+            (h = hours; e = an on/off input such as cleaning). Plant values: setting(&apos;design_flow&apos;);
+            known(&apos;k&apos;) is 1 when k has a value.
           </small>
           {test && (
             <p className={test.ok ? 'ok-message' : 'form-error'}>

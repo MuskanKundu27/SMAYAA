@@ -20,6 +20,7 @@ from app.engine.calculation import (
     calculation_order,
     parse_formula,
     parse_rule,
+    plant_functions,
 )
 from app.engine.evaluator import RESERVED_NAMES, ExpressionError, evaluate
 from app.engine.history import TimeFunctions
@@ -43,6 +44,7 @@ from app.services.config_common import (
     parsed_formulas,
     plant_setting_default,
     sample_inputs,
+    setting_defaults,
 )
 
 PARAMETER_FIELDS = [
@@ -64,7 +66,11 @@ def to_out(p: Parameter) -> ParameterOut:
 
 
 def validate_formula(
-    key: str, formula: str, active: dict[str, Parameter], base: float | None
+    key: str,
+    formula: str,
+    active: dict[str, Parameter],
+    base: float | None,
+    settings: dict[str, float] | None = None,
 ) -> None:
     """Raise ValidationFailedError (field 'formula') unless the formula is safe and usable."""
     try:
@@ -86,7 +92,7 @@ def validate_formula(
     # have, so they are checked for syntax, keys and cycles only.
     if expression.history_hours > 0:
         return
-    results = calculate(sample_inputs(others), formulas, base)
+    results = calculate(sample_inputs(others), formulas, base, None, settings)
     if results.get(key) is None:
         raise expression_error(
             "formula",
@@ -150,7 +156,7 @@ def create_parameter(
             raise expression_error("formula", "A calculated parameter needs a formula.")
         validate_formula(
             data.key, data.formula, active_parameters(db, company_id),
-            plant_setting_default(company, "clean_baseline_approach"),
+            plant_setting_default(company, "clean_baseline_approach"), setting_defaults(company),
         )  # fmt: skip
     elif data.formula:
         raise expression_error("formula", "Typed-in parameters do not have a formula.")
@@ -199,7 +205,7 @@ def update_parameter(
             raise expression_error("formula", "A calculated parameter needs a formula.")
         validate_formula(
             key, new_formula, active_parameters(db, company_id),
-            plant_setting_default(company, "clean_baseline_approach"),
+            plant_setting_default(company, "clean_baseline_approach"), setting_defaults(company),
         )  # fmt: skip
 
     for field in ("label", "unit", "group_key", "precision", "sort_order", "sample_value"):
@@ -245,8 +251,13 @@ def test_formula(
         else plant_setting_default(company, "clean_baseline_approach")
     )
     values: dict[str, float | None] = {**inputs, BASE: base}
-    values.update(calculate(inputs, parsed_formulas(active.values()), base))
-    result = evaluate(expression, values, TimeFunctions(None, values).functions())
+    settings = setting_defaults(company)
+    values.update(calculate(inputs, parsed_formulas(active.values()), base, None, settings))
+    result = evaluate(
+        expression,
+        values,
+        {**TimeFunctions(None, values).functions(), **plant_functions(values, settings)},
+    )
     if isinstance(result, str | list):
         result = None
     return FormulaTestResult(

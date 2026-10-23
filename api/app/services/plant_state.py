@@ -7,7 +7,7 @@ screens and the live preview all use build_state(), so they always agree.
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -27,7 +27,7 @@ from app.models import Module, Parameter, Plant, Reading, Rule, Treatment
 from app.schemas.config import LimitValues
 from app.schemas.readings import Alert, PredictedProblem, Tile
 from app.services.config_common import active_parameters, parsed_formulas
-from app.services.limits import plant_limits, plant_setting
+from app.services.limits import plant_limits, plant_setting, plant_settings_values
 
 BASELINE_SETTING = "clean_baseline_approach"
 
@@ -47,6 +47,7 @@ class PlantState:
     statuses: dict[str, Status]
     base: float | None
     history: History | None = None  # earlier readings, for the time functions in rules
+    settings: dict[str, float] = field(default_factory=dict)  # plant settings, for setting()
 
     def tile(self, key: str, editable: bool = False) -> Tile:
         p = self.params.get(key)
@@ -118,16 +119,17 @@ def build_state(
         key: _as_float(inputs.get(key)) for key, p in params.items() if p.kind == "input"
     }
     base = _as_float(plant_setting(db, plant, BASELINE_SETTING))
+    settings = plant_settings_values(db, plant)
     formulas = parsed_formulas(params.values())
     hours = history_hours([*formulas.values(), *_active_rule_expressions(db, plant.company_id)])
     history = load_history(db, plant, hours, now or datetime.now(UTC))
     values: dict[str, float | None] = {
         **input_values,
-        **calculate(input_values, formulas, base, history),
+        **calculate(input_values, formulas, base, history, settings),
     }
     limits = {key: lim for key, (lim, _) in plant_limits(db, plant.id).items()}
     statuses = {key: status_of(values.get(key), limits.get(key)) for key in params}
-    return PlantState(plant, params, limits, values, statuses, base, history)
+    return PlantState(plant, params, limits, values, statuses, base, history, settings)
 
 
 # --- Which modules does a parameter affect? ----------------------------------------------------
@@ -258,7 +260,7 @@ class RuleResults:
 def predicted_problems(db: Session, state: PlantState) -> RuleResults:
     """Evaluate every active rule. A rule whose current inputs are missing or inactive, or whose
     trend cannot be worked out yet, is reported as insufficient data instead of guessing."""
-    context = RuleContext(state.values, state.statuses, state.history)
+    context = RuleContext(state.values, state.statuses, state.history, state.settings)
     matched: list[PredictedProblem] = []
     insufficient: list[str] = []
     rules = db.scalars(

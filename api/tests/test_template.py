@@ -26,6 +26,7 @@ KEYS = {p.key for p in T.parameters}
 FORMULAS = {p.key: parse_formula(p.formula) for p in T.parameters if p.formula}
 SAMPLES = {p.key: p.sample for p in T.parameters if not p.formula}
 BASELINE = T.plant_setting_defaults["clean_baseline_approach"]
+SETTINGS = {k: float(v) for k, v in T.plant_setting_defaults.items()}
 
 
 NOW = datetime(2026, 1, 10, 12, tzinfo=UTC)
@@ -36,15 +37,15 @@ def sample_history() -> History:
     points = []
     for hours_ago in range(48, 0, -6):
         inputs = {**SAMPLES, "clean": 1.0 if hours_ago == 24 else 0.0}
-        point = {**inputs, **calculate(inputs, FORMULAS, BASELINE)}
+        point = {**inputs, **calculate(inputs, FORMULAS, BASELINE, None, SETTINGS)}
         points.append((NOW - timedelta(hours=hours_ago), point))
     return History(now=NOW, points=points)
 
 
 def sample_context(history: History | None = None) -> RuleContext:
-    values = {**SAMPLES, **calculate(SAMPLES, FORMULAS, BASELINE, history)}
+    values = {**SAMPLES, **calculate(SAMPLES, FORMULAS, BASELINE, history, SETTINGS)}
     limits = {p.key: Limits(*p.limits) if p.limits else None for p in T.parameters}
-    return RuleContext(values, statuses_for(values, limits), history)
+    return RuleContext(values, statuses_for(values, limits), history, SETTINGS)
 
 
 def test_keys_are_unique() -> None:
@@ -59,7 +60,7 @@ def test_formulas_reference_only_template_parameters_and_have_no_loops() -> None
 
 
 def test_sample_values_give_the_expected_kpis() -> None:
-    results = calculate(SAMPLES, FORMULAS, BASELINE)
+    results = calculate(SAMPLES, FORMULAS, BASELINE, None, SETTINGS)
 
     assert results["range"] == 8.0
     assert results["appr"] == 5.0
@@ -100,11 +101,15 @@ def test_sample_data_predicts_thermal_fouling_only() -> None:
 
 def test_trend_kpis_use_history() -> None:
     history = sample_history()
-    values = calculate(SAMPLES, FORMULAS, BASELINE, history)
+    values = calculate(SAMPLES, FORMULAS, BASELINE, history, SETTINGS)
 
     assert values["dprate"] == 0.0  # flat ΔP over the day
     assert values["cleancount"] == 1.0
-    assert values["since"] == 24.0
+    assert values["cleanint"] is None  # one cleaning: no interval between two yet
+    assert values["dppost"] == pytest.approx(0.6)  # sample ΔP after the cleaning
+    assert values["wsave"] == pytest.approx(0.5)  # (3 - 2.5) m³ for 1 cleaning
+    assert values["coverage"] == 100.0
+    assert values["thealth"] == 86.0  # 100 - 14 * residual 1.0
     assert values["dprec"] == pytest.approx(0.0)  # sample ΔP is the same before and after
     assert values["treated"] == pytest.approx(50 * 48)  # 50 m³/h for 48 h, one cleaning
     assert values["expappr"] == BASELINE  # load and fan at 100 %

@@ -75,16 +75,26 @@ def plant_setting_default(company: Company, key: str) -> Any:
     return (company.settings or {}).get(PLANT_SETTING_DEFAULTS_KEY, {}).get(key)
 
 
+def setting_defaults(company: Company) -> dict[str, float]:
+    """The company's default plant settings (used when testing formulas and rules)."""
+    defaults = (company.settings or {}).get(PLANT_SETTING_DEFAULTS_KEY, {})
+    return {
+        k: float(v) for k, v in defaults.items()
+        if isinstance(v, int | float) and not isinstance(v, bool)
+    }  # fmt: skip
+
+
 def evaluate_with_defaults(
     parameters: Mapping[str, Parameter],
     inputs: Mapping[str, float | None],
     base: float | None,
+    settings: Mapping[str, float] | None = None,
 ) -> tuple[dict[str, float | None], dict[str, Status]]:
     """All values (inputs + calculated) and their statuses using default limits."""
     values: dict[str, float | None] = {
         k: v for k, v in inputs.items() if k in parameters and parameters[k].kind == "input"
     }
-    values.update(calculate(values, parsed_formulas(parameters.values()), base))
+    values.update(calculate(values, parsed_formulas(parameters.values()), base, None, settings))
     limits = {key: default_limits(p) for key, p in parameters.items()}
     return values, statuses_for(values, limits)
 

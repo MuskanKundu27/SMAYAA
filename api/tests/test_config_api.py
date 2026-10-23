@@ -109,7 +109,13 @@ def test_parameters_used_by_formulas_or_rules_cannot_be_deactivated(api: Call) -
 
     assert response.status_code == 409
     users = {d["message"] for d in response.json()["error"]["details"]}
-    assert users == {"parameter 'appr'", "parameter 'heat'", "parameter 'range'"}
+    # coverage counts whether a value is known (known('wbt')), so it uses wbt too.
+    assert users == {
+        "parameter 'appr'",
+        "parameter 'heat'",
+        "parameter 'range'",
+        "parameter 'coverage'",
+    }
 
     response = api("PATCH", "/parameters/hard", json={"is_active": False})
     users = {d["message"] for d in response.json()["error"]["details"]}

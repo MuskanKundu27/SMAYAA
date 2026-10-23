@@ -66,7 +66,9 @@ def test_saving_stores_a_new_reading_with_calculated_values(
     assert reading["calculated_values"]["range"] == 8.0
     assert reading["calculated_values"]["resid"] == 1.0  # appr 5 - baseline 4
     assert reading["formula_versions"]["range"] == 1
-    assert reading["settings_used"] == {"clean_baseline_approach": 4.0}
+    # Every plant setting used is stored with the reading (history stays explainable).
+    assert reading["settings_used"]["clean_baseline_approach"] == 4.0
+    assert reading["settings_used"]["design_flow"] == 1000.0
 
 
 def test_changes_from_two_people_are_merged_not_overwritten(

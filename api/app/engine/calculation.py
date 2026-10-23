@@ -13,8 +13,28 @@ def _no_data_helper(*_args: Value) -> Value:
     return None
 
 
+# Plant helpers, available in formulas and rules:
+#   setting('name')  a plant setting (design or threshold value), e.g. setting('design_flow')
+#   known('key')     1 if the parameter has a value now, else 0 (for data-coverage scores)
+PLANT_FUNCTIONS = ("setting", "known")
+
 # parse() only needs the helper names; real helpers are bound to data at evaluation time.
-_TIME_SIGNATURES: dict[str, Callable[..., Value]] = dict.fromkeys(TIME_FUNCTIONS, _no_data_helper)
+_TIME_SIGNATURES: dict[str, Callable[..., Value]] = dict.fromkeys(
+    (*TIME_FUNCTIONS, *PLANT_FUNCTIONS), _no_data_helper
+)
+
+
+def plant_functions(
+    values: Mapping[str, float | None], settings: Mapping[str, float] | None
+) -> dict[str, Callable[..., Value]]:
+    def setting(name: Value) -> Value:
+        value = (settings or {}).get(str(name))
+        return float(value) if isinstance(value, int | float) else None
+
+    def known(key: Value) -> Value:
+        return 1.0 if values.get(str(key)) is not None else 0.0
+
+    return {"setting": setting, "known": known}
 
 
 def parse_formula(source: str) -> Expression:
@@ -61,11 +81,16 @@ def calculate(
     formulas: Mapping[str, Expression],
     base: float | None = None,
     history: History | None = None,
+    settings: Mapping[str, float] | None = None,
 ) -> dict[str, float | None]:
     """Return the value of every calculated key. Unknown inputs give None, never an error.
-    Without `history`, time functions (change, rate, ...) give None."""
+    Without `history`, time functions (change, rate, ...) give None; without `settings`,
+    setting('...') gives None."""
     values: dict[str, float | None] = {**inputs, BASE: base}
-    time_functions = TimeFunctions(history, values).functions()
+    time_functions = {
+        **TimeFunctions(history, values).functions(),
+        **plant_functions(values, settings),
+    }
     results: dict[str, float | None] = {}
     for key in calculation_order(formulas):
         values[key] = results[key] = _as_number(evaluate(formulas[key], values, time_functions))
@@ -101,10 +126,12 @@ class RuleContext:
         values: Mapping[str, float | None],
         statuses: Mapping[str, Status],
         history: History | None = None,
+        settings: Mapping[str, float] | None = None,
     ):
         self._values = values
         self._statuses = statuses
         self._time = TimeFunctions(history, values)
+        self._plant = plant_functions(values, settings)
 
     @property
     def values(self) -> Mapping[str, float | None]:
@@ -135,7 +162,11 @@ class RuleContext:
         return float(sum(self._is_off(k) for k in keys))
 
     def functions(self) -> dict[str, Callable[..., Value]]:
-        return {**self._time.functions(), **{name: getattr(self, name) for name in RULE_HELPERS}}
+        return {
+            **self._time.functions(),
+            **self._plant,
+            **{name: getattr(self, name) for name in RULE_HELPERS},
+        }
 
 
 _RULE_SIGNATURES: dict[str, Callable[..., Value]] = {

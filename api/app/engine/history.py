@@ -13,6 +13,7 @@ ability with one general mechanism, so new trend KPIs are configuration, not cod
     hours_since('e')      hours since event e last started
     before_event('k','e') k just before event e last started (e.g. ΔP before cleaning)
     after_event('k','e')  k just after event e last ended (e.g. ΔP after cleaning)
+    event_interval('e')   hours between the last two starts of event e (cleaning interval)
 
 An "event" parameter is an on/off input such as cleaning status: on (≥ 0.5) or off.
 Like everything in the engine: no data, not enough history or a zero time span gives None
@@ -29,9 +30,9 @@ Value = float | bool | str | list[object] | None
 MAX_WINDOW_HOURS = 24 * 90  # longest look-back a formula may ask for
 EVENT_LOOKBACK_HOURS = 24 * 30  # history loaded for the event functions
 WINDOW_FUNCTIONS = ("change", "rate", "avg", "total", "events")
-EVENT_FUNCTIONS = ("events", "hours_since", "before_event", "after_event")
-TIME_FUNCTIONS = ("change", "rate", "avg", "total", "events", "hours_since", "before_event",
-                  "after_event")  # fmt: skip
+EVENT_FUNCTIONS = ("events", "hours_since", "event_interval", "before_event", "after_event")
+TIME_FUNCTIONS = ("change", "rate", "avg", "total", "events", "hours_since", "event_interval",
+                  "before_event", "after_event")  # fmt: skip
 ON = 0.5  # event parameters: a value at or above this means "on"
 # change() and rate() need readings covering at least this share of their window.
 MIN_SPAN_FRACTION = 0.1
@@ -149,6 +150,15 @@ class TimeFunctions:
         states = self._states(event)
         start = self._last_start(states)
         return None if start is None else _hours(states[start][0], self._now())
+
+    def event_interval(self, event: Value) -> Value:
+        starts = []
+        previous = False
+        for t, on in self._states(event):
+            if on and not previous:
+                starts.append(t)
+            previous = on
+        return _hours(starts[-2], starts[-1]) if len(starts) >= 2 else None
 
     def before_event(self, key: Value, event: Value) -> Value:
         states = self._states(event)

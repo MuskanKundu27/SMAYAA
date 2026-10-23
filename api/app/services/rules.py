@@ -21,6 +21,7 @@ from app.services.config_common import (
     evaluate_with_defaults,
     expression_error,
     plant_setting_default,
+    setting_defaults,
 )
 
 RULE_FIELDS = [
@@ -128,8 +129,9 @@ def test_rule(
         if data.base is not None
         else plant_setting_default(company, "clean_baseline_approach")
     )
-    values, statuses = evaluate_with_defaults(active, data.values, base)
-    context = RuleContext(values, statuses)
+    settings = setting_defaults(company)
+    values, statuses = evaluate_with_defaults(active, data.values, base, settings)
+    context = RuleContext(values, statuses, None, settings)
     matched = evaluate_rule(condition, context)
     prob = evaluate_rule(probability, context) if probability else None
     references = sorted(condition.references | (probability.references if probability else set()))

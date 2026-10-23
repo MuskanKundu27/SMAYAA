@@ -555,6 +555,34 @@ We did not write code just for "bypass valve". Any input widget can now say whic
 
 ---
 
+## Entry 16 – Matching the modules exactly to the engineering note (2026-10-23)
+
+**What we did**
+We put the engineering note next to the system and compared them line by line, then changed the Thermal Efficiency and Side-Stream Filtration modules so they say exactly what the note says:
+- **Expected approach** now uses everything the note lists: wet-bulb, heat load, flow, fan speed and the clean baseline (still a clearly labelled demo model until engineers give the real one).
+- **Fan response** uses fan speed, or fan power when speed isn't measured.
+- **Cleaning interval** is now the real time between the last two cleanings (it used to be a 7-day average).
+- **ΔP forecasts** for 2, 6 and 24 hours, as the note asks.
+- The note's **prediction targets** are now shown as numbers: time to the high-approach threshold, time to the low-flow threshold, time to the quality limit, expected post-clean ΔP, expected minimum water per cleaning and the water savings opportunity.
+- From the note's example output: **weighted data coverage** and a **thermal health** score.
+- **Oil in water** now counts as evidence for contamination (fast loading) and for ineffective cleaning.
+- We removed one thing the note doesn't ask for ("time since last cleaning"). Chemistry stays as it was.
+
+**A new building block: plant settings in formulas**
+Many targets compare against a plant-specific number: "how long until the approach reaches 6 °C?" or "the design flow is 1000 m³/h". Instead of typing those numbers into the formulas, each plant now has **settings** (design values and thresholds), and a formula reads them with `setting('design_flow')`. A manager can change a setting for their plant on the Limits page; every formula that uses it follows automatically. Which settings exist is also configuration, so a future module can add its own without code changes.
+
+**Two more small helpers**
+- `event_interval('clean')`: hours between the last two cleanings.
+- `known('wbt')`: 1 if a value exists, else 0. Used to score data coverage: "how many of the inputs this model needs do we actually have?"
+
+**What to learn**
+- When a specification exists, check against the real document, not memory or screenshots. Small differences ("average interval" vs "time between events") change what users see.
+- Ask before removing things, and keep what the owner wants (here: chemistry).
+- Thresholds and design values belong in settings, not inside formulas, so each plant can have its own.
+- Demo scores (health, probabilities, the expected-approach model) are labelled as demo until engineers calibrate them.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -641,3 +669,7 @@ We did not write code just for "bypass valve". Any input widget can now say whic
 | **Toggle / switch** | A control with two states (on/off) that you click instead of typing. |
 | **localStorage** | A small storage area in the browser for remembering simple things between visits. |
 | **Reduced motion** | A system setting for people who are bothered by animations; good apps respect it. |
+| **Design value** | The value a plant was designed for (e.g. design flow); actual values are compared against it. |
+| **Threshold** | A limit value that triggers attention when crossed (e.g. high-approach threshold 6 °C). |
+| **Data coverage** | How many of the inputs a calculation needs actually have values right now. |
+| **Specification (spec)** | The document that says exactly what a system must do. |

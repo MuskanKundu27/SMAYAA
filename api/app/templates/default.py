@@ -111,23 +111,45 @@ PARAMETERS = [
     P("range", "Range", "°C", "thermal", limits=(3, 5, 10, 12), formula="tr - ts", precision=1),
     P("appr", "Approach", "°C", "thermal", limits=(2, 3, 6, 8), formula="ts - wbt", precision=1),
     P("heat", "Heat load", "kW", "thermal", formula="1.163 * flow * (tr - ts)", precision=0),
-    # Demo model until a calibrated one exists: the clean baseline, scaled for process load and
-    # fan speed (missing values count as 100 %).
+    # Expected approach = model(WBT, heat load, flow, fan speed, clean baseline) per the note.
+    # Demo model until a calibrated one exists: the clean baseline scaled for duty (process load
+    # proxy if available, else heat load vs design), fan speed, flow vs design and wet-bulb vs
+    # design. Design values are plant settings.
     P("expappr", "Expected approach (demo model)", "°C", "thermal",
-      formula="base * (coalesce(load, 100) / 100) ** 0.7"
-              " * (100 / max(coalesce(fanspd, 100), 20)) ** 0.5", precision=1),
+      formula="base * coalesce(load / 100, heat / setting('design_heat_load')) ** 0.7"
+              " * (100 / max(coalesce(fanspd, 100), 20)) ** 0.5"
+              " * (flow / setting('design_flow')) ** 0.2"
+              " * (1 + 0.02 * (setting('design_wbt') - wbt))", precision=1),
     P("resid", "Approach residual", "°C", "thermal", limits=(-2, -2, 1.5, 3),
       formula="appr - expappr", precision=1),
-    P("fanresp", "Fan response (6 h)", "°C per %", "thermal",
-      formula="change('appr', 6) / change('fanspd', 6)", precision=3),
+    # ΔApproach / ΔFan speed, or / ΔFan power when speed is not measured.
+    P("fanresp", "Fan response (6 h)", "°C per % (or kW)", "thermal",
+      formula="coalesce(change('appr', 6) / change('fanspd', 6),"
+              " change('appr', 6) / change('fan', 6))", precision=3),
     P("sfe", "Specific fan energy", "kW per MW", "thermal", formula="fan / heat * 1000",
       precision=1),
+    # Prediction targets (3.3) and example output (3.5).
+    P("tth", "Time to high-approach threshold (P50)", "h", "thermal",
+      formula="max(0, (setting('high_approach_threshold') - appr) / max(rate('appr', 24), 0))",
+      precision=0),
+    P("ttlf", "Time to low-flow threshold", "h", "thermal",
+      formula="max(0, (flow - setting('low_flow_threshold')) / max(-rate('flow', 24), 0))",
+      precision=0),
+    # Weighted: the four core thermal signals count double.
+    P("coverage", "Weighted data coverage", "%", "thermal", limits=(50, 70, 100, 100),
+      formula="(2 * (known('ts') + known('tr') + known('wbt') + known('flow'))"
+              " + known('fan') + known('fanspd') + known('pumpspd') + known('pumppow')"
+              " + known('pumpp') + known('load') + max(known('tin'), known('tssin'))) / 15 * 100",
+      precision=0),
+    P("thealth", "Thermal health (demo score)", "%", "thermal", limits=(50, 70, 100, 100),
+      formula="max(0, min(100, 100 - 14 * max(0, resid)))", precision=0),
     # Calculated: side-stream filtration KPIs
     P("dp", "Filter ΔP", "bar", "filter", limits=(0, 0, 0.8, 1.2), formula="pin - pout"),
     P("rem", "Removal efficiency", "%", "filter", limits=(50, 70, 100, 100),
       formula="(tin - tout) / tin * 100", precision=1),
     P("dprate", "ΔP rate of change", "bar/day", "filter", formula="rate('dp', 24) * 24",
       precision=3),
+    P("dpf2", "ΔP forecast (2 h)", "bar", "filter", formula="dp + dprate / 12"),
     P("dpf6", "ΔP forecast (6 h)", "bar", "filter", formula="dp + dprate / 4"),
     P("dpf24", "ΔP forecast (24 h)", "bar", "filter", formula="dp + dprate"),
     # Time until ΔP reaches 1.2 bar at the current loading rate (no value when not loading).
@@ -137,13 +159,22 @@ PARAMETERS = [
       formula="ssflow * coalesce(tssin, tin) / 1000", precision=2),
     P("cleancount", "Cleanings (7 days)", "", "filter", formula="events('clean', 168)",
       precision=0),
-    P("cleanint", "Average cleaning interval (7 days)", "h", "filter",
-      formula="168 / events('clean', 168)", precision=0),
-    P("since", "Time since last cleaning", "h", "filter", formula="hours_since('clean')",
+    # Time between valid cleaning events: the last two cleanings.
+    P("cleanint", "Cleaning interval", "h", "filter", formula="event_interval('clean')",
       precision=0),
     P("dprec", "ΔP recovery (last cleaning)", "bar", "filter",
       formula="before_event('dp', 'clean') - after_event('dp', 'clean')"),
+    P("dppost", "Post-clean ΔP (last cleaning)", "bar", "filter",
+      formula="after_event('dp', 'clean')"),
+    P("dpexp", "Expected post-clean ΔP", "bar", "filter", formula="setting('clean_dp_baseline')"),
+    P("ttq", "Time to quality limit", "h", "filter",
+      formula="max(0, (setting('outlet_turbidity_limit') - tout) / max(rate('tout', 24), 0))",
+      precision=0),
     P("bw", "Water per cleaning", "m³", "filter", formula="bwf * bwt / 60", precision=1),
+    P("wexp", "Expected minimum water per cleaning", "m³", "filter",
+      formula="setting('min_water_per_clean')", precision=1),
+    P("wsave", "Water savings opportunity (7 days)", "m³", "filter",
+      formula="max(0, bw - wexp) * events('clean', 168)", precision=1),
     P("treated", "m³ treated per cleaning (7 days)", "m³", "filter",
       formula="total('ssflow', 168) / events('clean', 168)", precision=0),
 ]  # fmt: skip
@@ -238,17 +269,19 @@ RULES = [
       ("filter",)),
     R("FLT-P03", "Abnormally fast loading",
       f"count_off({CHEM_FILTER}) > 0"
-      " or (coalesce(dprate, 0) > 0.2 and coalesce(rate('tin', 24), 0) > 0)",
+      " or (coalesce(dprate, 0) > 0.2 and coalesce(rate('tin', 24), 0) > 0)"
+      " or coalesce(oil, 0) > 5",
       FILTER_PROBABILITY, "Backwash earlier; look for a contamination event or high solids.",
       ("filter",)),
     R("FLT-P04", "Low flow / hydraulic restriction",
       "(off('dp') and rate('ssflow', 24) < 0) or coalesce(sspump, 1) < 0.5",
       "min(95, 30 + sev('dp'))", "Check strainer, pump and valves on the side-stream line.",
       ("filter",)),
-    R("FLT-P05", "Ineffective cleaning", "dprec < 0.15",
-      "min(95, 40 + sev('dp'))", "Check backwash sequence and filter internals.", ("filter",)),
+    R("FLT-P05", "Ineffective cleaning", "dprec < 0.15 or dppost > dpexp + 0.2",
+      "min(95, 40 + sev('dp') + min(20, 4 * coalesce(oil, 0)))",
+      "Check backwash sequence and filter internals; check for oil fouling.", ("filter",)),
     R("FLT-P06", "Excessive cleaning water",
-      "(events('clean', 168) > 7 or bw > 5) and not off('rem')",
+      "(events('clean', 168) > 7 or bw > 1.5 * wexp) and not off('rem')",
       "min(95, 20 + 5 * coalesce(events('clean', 168), 0))",
       "Review the backwash trigger and sequence; save water.", ("filter",)),
     R("FLT-P07", "Low ΔP with high outlet turbidity",
@@ -321,13 +354,13 @@ MODULES = [
             {
                 "type": "value_tiles",
                 "title": "Filtration KPIs",
-                "params": ["dp", "rem", "dprate", "solids"],
+                "params": ["dp", "rem", "dprate", "solids", "ttq"],
             },
             {
                 "type": "value_tiles",
                 "title": "Cleaning",
-                "params": ["ttc", "dpf6", "dpf24", "since", "cleancount", "cleanint", "dprec",
-                           "bw", "treated"],
+                "params": ["ttc", "dpf2", "dpf6", "dpf24", "cleancount", "cleanint", "dprec",
+                           "dppost", "dpexp", "bw", "wexp", "wsave", "treated"],
             },
             {"type": "trend_chart", "title": "Filter ΔP (7 days)", "params": ["dp"], "hours": 168},
             {
@@ -354,6 +387,11 @@ MODULES = [
                 "params": ["appr", "expappr", "resid", "range", "heat", "fanresp", "sfe"],
             },
             {
+                "type": "value_tiles",
+                "title": "Thermal status",
+                "params": ["coverage", "thealth", "tth", "ttlf"],
+            },
+            {
                 "type": "trend_chart",
                 "title": "Approach and residual (7 days)",
                 "params": ["appr", "resid"],
@@ -369,8 +407,9 @@ MODULES = [
             {
                 "type": "text_note",
                 "text": "Expected approach is a demo model: the plant's clean baseline approach "
-                "scaled for process load and fan speed. Approach residual = actual minus "
-                "expected.",
+                "scaled for heat load (or process load), fan speed, flow and wet-bulb against "
+                "the plant's design values. Approach residual = actual minus expected. "
+                "Thermal health is a demo score.",
             },
         ],
     ),
@@ -384,7 +423,19 @@ DEFAULT_TEMPLATE = Template(
     treatments=TREATMENTS,
     rules=RULES,
     modules=MODULES,
-    plant_setting_defaults={"clean_baseline_approach": 4.0},
+    # Plant settings (each plant may override): design values and thresholds used by formulas
+    # through setting('name').
+    plant_setting_defaults={
+        "clean_baseline_approach": 4.0,
+        "design_heat_load": 9304.0,
+        "design_flow": 1000.0,
+        "design_wbt": 26.0,
+        "high_approach_threshold": 6.0,
+        "low_flow_threshold": 700.0,
+        "clean_dp_baseline": 0.2,
+        "min_water_per_clean": 2.5,
+        "outlet_turbidity_limit": 5.0,
+    },
 )
 
 TEMPLATES = {DEFAULT_TEMPLATE.key: DEFAULT_TEMPLATE}

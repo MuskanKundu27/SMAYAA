@@ -26,7 +26,12 @@ from app.schemas.config import (
     PlantSettingValue,
 )
 from app.services import audit
-from app.services.config_common import active_parameters, default_limits, plant_setting_default
+from app.services.config_common import (
+    PLANT_SETTING_DEFAULTS_KEY,
+    active_parameters,
+    default_limits,
+    plant_setting_default,
+)
 from app.services.plants import get_plant_in_scope, plant_has_active_manager
 
 FALLBACK_PERMISSION = "limits.write_without_manager"
@@ -156,8 +161,31 @@ def reset_limit(
 
 # --- Plant settings ----------------------------------------------------------------------------
 
-# Known plant settings and how to validate them. A new setting = one entry here.
-PLANT_SETTING_TYPES: dict[str, type] = {"clean_baseline_approach": float}
+# Which plant settings exist is configuration: the keys of the company's
+# settings["plant_setting_defaults"] (copied from the template). All are numbers for now
+# (design values, thresholds, the clean baseline approach) and formulas read them with
+# setting('name').
+
+
+def _setting_keys(company: Company | None) -> list[str]:
+    defaults = (company.settings or {}).get(PLANT_SETTING_DEFAULTS_KEY, {}) if company else {}
+    return list(defaults)
+
+
+def plant_settings_values(db: Session, plant: Plant) -> dict[str, float]:
+    """Every numeric plant setting: the plant's own values over the company defaults."""
+    company = db.get(Company, plant.company_id)
+    values: dict[str, Any] = (
+        {key: plant_setting_default(company, key) for key in _setting_keys(company)}
+        if company
+        else {}
+    )
+    for row in db.scalars(select(PlantSetting).where(PlantSetting.plant_id == plant.id)):
+        values[row.key] = row.value
+    return {
+        k: float(v) for k, v in values.items()
+        if isinstance(v, int | float) and not isinstance(v, bool)
+    }  # fmt: skip
 
 
 def plant_setting(db: Session, plant: Plant, key: str) -> Any:
@@ -174,7 +202,7 @@ def get_settings(db: Session, principal: Principal, plant_id: uuid.UUID) -> Plan
     plant = get_plant_in_scope(db, principal, plant_id)
     company = db.get(Company, plant.company_id)
     result: dict[str, PlantSettingValue] = {}
-    for key in PLANT_SETTING_TYPES:
+    for key in _setting_keys(company):
         row = db.get(PlantSetting, (plant.id, key))
         if row is not None:
             result[key] = PlantSettingValue(value=row.value, source="plant")
@@ -195,12 +223,12 @@ def update_settings(
 ) -> PlantSettings:
     plant = get_plant_in_scope(db, principal, plant_id)
     _require_edit(db, principal, plant, "plant_settings.write")
+    known_keys = set(_setting_keys(db.get(Company, plant.company_id)))
     problems = []
     for key, value in values.items():
-        expected = PLANT_SETTING_TYPES.get(key)
-        if expected is None:
+        if key not in known_keys:
             problems.append({"field": key, "message": "Unknown setting."})
-        elif expected is float and (isinstance(value, bool) or not isinstance(value, int | float)):
+        elif isinstance(value, bool) or not isinstance(value, int | float):
             problems.append({"field": key, "message": "Must be a number."})
     if problems:
         raise ValidationFailedError("Invalid plant settings.", problems)
@@ -212,7 +240,7 @@ def update_settings(
         if row is None:
             row = PlantSetting(plant_id=plant.id, key=key, company_id=plant.company_id)
             db.add(row)
-        row.value = float(value) if PLANT_SETTING_TYPES[key] is float else value
+        row.value = float(value)
         row.updated_by = principal.user_id
         row.updated_at = now
     audit.record(
