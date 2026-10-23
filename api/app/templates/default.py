@@ -1,4 +1,5 @@
-"""The default SMAYAA template: Water Chemistry, Filter and Thermal.
+"""The default SMAYAA template: Input Parameters (data entry), Side-Stream Filtration and
+Thermal Efficiency.
 
 This is product data, not logic. A new company receives a copy; changing a company's copy
 never changes this template or any other company.
@@ -295,7 +296,7 @@ THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 MODULES = [
     TemplateModule(
         "water_chemistry",
-        "Water Chemistry",
+        "Input Parameters",
         [
             {"type": "alert_list", "title": "Alerts"},
             {"type": "input_group", "title": "Chemistry", "group": "chemistry"},
@@ -385,7 +386,7 @@ MODULES = [
 
 DEFAULT_TEMPLATE = Template(
     key="default",
-    name="SMAYAA standard (Water Chemistry, Filter, Thermal)",
+    name="SMAYAA standard (Input Parameters, Side-Stream Filtration, Thermal Efficiency)",
     parameters=PARAMETERS,
     treatments=TREATMENTS,
     rules=RULES,

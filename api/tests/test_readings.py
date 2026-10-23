@@ -291,7 +291,7 @@ def test_modules_list_comes_from_configuration(client: TestClient, acme: Tenant)
     response = client.get(f"{base(acme)}/modules", headers=login(client, "acme-operator"))
 
     assert [m["title"] for m in response.json()] == [
-        "Water Chemistry",
+        "Input Parameters",
         "Side-Stream Filtration",
         "Thermal Efficiency",
     ]

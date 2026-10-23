@@ -117,7 +117,7 @@ function TemplateTab({ companyId }: { companyId: string }) {
   return (
     <div className="card">
       <p>
-        The <strong>default template</strong> holds the standard Water Chemistry, Side-Stream Filtration
+        The <strong>default template</strong> holds the standard Input Parameters, Side-Stream Filtration
         and Thermal Efficiency setup: inputs, KPIs, rules and screens.
       </p>
       <ul className="change-list">

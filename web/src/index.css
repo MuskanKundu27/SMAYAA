@@ -170,12 +170,17 @@ h2 {
   min-height: 100vh;
 }
 
+/* Stays in view while the page scrolls; scrolls on its own if the menu is taller than the screen. */
 .sidebar {
   width: 230px;
   flex-shrink: 0;
   padding: 1.25rem 0.9rem;
   background: var(--navy);
   color: #fff;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .sidebar .brand {
@@ -327,6 +332,8 @@ h2 {
 
   .sidebar {
     width: auto;
+    position: static;
+    height: auto;
   }
 
   .content {
