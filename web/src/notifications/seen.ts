@@ -9,7 +9,7 @@ export function notificationIds(data: PlantAlerts | null): string[] {
   if (!data) return []
   return [
     ...data.alerts.map((a) => `alert:${a.parameter_key}:${a.level}`),
-    ...data.problems.map((p) => `problem:${p.code}`),
+    ...(data.problems ?? []).map((p) => `problem:${p.code}`),
   ]
 }
 
