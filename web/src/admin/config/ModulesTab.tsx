@@ -34,11 +34,6 @@ export function ModulesTab({ companyId }: { companyId: string }) {
 
   return (
     <>
-      <p className="muted">
-        A module is a screen made of widgets, described as JSON. Plants see changes on their next
-        refresh. A widget that points to a missing or inactive parameter or rule shows
-        “insufficient data” for it instead of breaking the page.
-      </p>
       {message && <Notice>{message}</Notice>}
       {warnings.length > 0 && (
         <Notice tone="warn">

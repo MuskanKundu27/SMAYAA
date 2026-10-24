@@ -586,6 +586,19 @@ After reviewing the screens, the owner decided the modules should show **only th
 
 ---
 
+## Entry 17 – Fewer words on the Configuration screens (2026-10-24)
+
+**What we did**
+We removed the explanation paragraphs at the top of the Configuration tabs (Parameters, Modules, Rules, Treatments). The warning that treatment texts need review by an engineer stays, and so do the small hints next to form fields.
+
+**Why**
+The person who uses these screens already knows them, and the long paragraphs pushed the useful content down. Explanations now live in the developer guide.
+
+**What to learn**
+- Screen text should help the user act, not teach the whole system. Keep warnings that prevent mistakes; move background explanations into documentation.
+
+---
+
 ## Glossary
 
 | Term | Meaning |

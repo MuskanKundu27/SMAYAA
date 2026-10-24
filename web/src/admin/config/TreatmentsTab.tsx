@@ -34,10 +34,6 @@ export function TreatmentsTab({ companyId }: { companyId: string }) {
         Shipped texts are placeholders. A qualified water-treatment engineer must review them before
         real use; untick “needs review” once that is done.
       </Notice>
-      <p className="muted">
-        Shown with an alert when a value is too high or too low: likely cause, treatment and
-        precautions.
-      </p>
       {message && <Notice>{message}</Notice>}
 
       <PickTreatment

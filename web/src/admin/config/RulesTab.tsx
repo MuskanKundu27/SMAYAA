@@ -22,15 +22,6 @@ export function RulesTab({ companyId }: { companyId: string }) {
 
   return (
     <>
-      <p className="muted">
-        Predicted-problem rules. A rule shows on a module&apos;s predicted-problems widget when its
-        condition is true. Helpers: <code>value(&apos;k&apos;)</code>, <code>status(&apos;k&apos;)</code>,{' '}
-        <code>off(&apos;k&apos;)</code>, <code>sev(&apos;k&apos;)</code>, <code>count_off([&apos;k1&apos;, &apos;k2&apos;])</code>,
-        and the trend functions <code>rate(&apos;k&apos;, 24)</code>, <code>change(&apos;k&apos;, 6)</code>,{' '}
-        <code>events(&apos;clean&apos;, 168)</code>, <code>coalesce(x, 0)</code>. A rule shows
-        &ldquo;insufficient data&rdquo; until a value it needs exists or its trend has enough
-        history. Probabilities are demo heuristics until trained models replace them.
-      </p>
       {message && <Notice>{message}</Notice>}
       {editing ? (
         <RuleEditor

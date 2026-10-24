@@ -46,7 +46,7 @@ export function ConfigurationPage() {
       </label>
 
       {!companyId ? (
-        <p className="muted">Each company has its own parameters, formulas, limits, treatments, rules and screens.</p>
+        null
       ) : (
         <>
           <div className="tabs" role="tablist">

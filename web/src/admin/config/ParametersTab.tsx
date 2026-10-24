@@ -25,11 +25,6 @@ export function ParametersTab({ companyId }: { companyId: string }) {
 
   return (
     <>
-      <p className="muted">
-        Inputs are typed in at the plant. Calculated values use a formula over other keys (and{' '}
-        <code>base</code>, the plant&apos;s clean baseline approach). Editing a formula creates a new
-        version; readings already saved keep the values calculated at the time.
-      </p>
       {message && <Notice>{message}</Notice>}
       {editing ? (
         <ParameterEditor
