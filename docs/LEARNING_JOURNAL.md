@@ -599,6 +599,23 @@ The person who uses these screens already knows them, and the long paragraphs pu
 
 ---
 
+## Entry 18 – The real LSI formula, and values that can be measured or calculated (2026-10-24)
+
+**What we did**
+- Replaced the demo LSI formula with the real one from the engineers: LSI = pH − pHs, where pHs is built from TDS, water temperature, hardness and alkalinity using base-10 logarithms. We added a `log10` function to the formula engine so the formula reads like the engineers' sheet.
+- Filter ΔP and fan power can now be **measured or calculated**, chosen per company by the platform admin. ΔP is measured by a transmitter or calculated as inlet minus outlet pressure. Fan power comes from a kW meter, or is calculated from voltage, current and power factor (P = √3 × V × I × PF / 1000).
+- We added three inputs for fan voltage, current and power factor. They stay switched off until a company chooses "calculated", then switch on automatically.
+
+**How it works**
+Every parameter already had a "kind": input (typed in) or calculated (formula). Now the kind can be changed after creation. When a parameter becomes measured, it keeps its formula in the database, so switching back is one click. Screens follow automatically: a measured ΔP shows up with the filter inputs, and a calculated fan power moves to the calculated values. Old readings are not changed.
+
+**What to learn**
+- Prefer one general switch ("measured or calculated") over special code for each parameter; the next parameter that needs the same choice gets it for free.
+- When rules inside the database (check constraints) block a new feature, change them with a migration, never by hand.
+- A more correct formula can change results a lot (LSI went from 0.70 to 1.45 with the same data), so limits set for the old formula must be reviewed too.
+
+---
+
 ## Glossary
 
 | Term | Meaning |
@@ -689,3 +706,6 @@ The person who uses these screens already knows them, and the long paragraphs pu
 | **Threshold** | A limit value that triggers attention when crossed (e.g. high-approach threshold 6 °C). |
 | **Data coverage** | How many of the inputs a calculation needs actually have values right now. |
 | **Specification (spec)** | The document that says exactly what a system must do. |
+| **LSI (Langelier Saturation Index)** | A number that says whether water tends to form scale (positive) or to corrode (negative). |
+| **log10** | Base-10 logarithm: log10(1000) = 3. |
+| **Check constraint** | A rule inside the database that every row must follow; the database refuses rows that break it. |

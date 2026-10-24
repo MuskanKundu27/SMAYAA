@@ -25,6 +25,14 @@ class TemplateParameter:
     limits: L | None = None
     formula: str | None = None
     precision: int = 2
+    # measured=True: has a formula but starts as measured (typed in or from a PLC); the super
+    # admin can switch it to calculated per company.
+    measured: bool = False
+    active: bool = True
+
+    @property
+    def kind(self) -> str:
+        return "calculated" if self.formula and not self.measured else "input"
 
 
 @dataclass(frozen=True)
@@ -84,7 +92,13 @@ PARAMETERS = [
     P("tr", "Return temperature", "°C", "thermal", 39, (30, 35, 42, 45), precision=1),
     P("wbt", "Wet-bulb temperature", "°C", "thermal", 26, precision=1),
     P("flow", "Circulating flow", "m³/h", "thermal", 1000, (500, 700, 1300, 1500), precision=0),
-    P("fan", "Fan power", "kW", "thermal", 70, (0, 0, 80, 95), precision=1),
+    # Fan power: measured by a kW meter, or calculated from voltage, current and power factor
+    # (P = sqrt(3) x V x I x PF / 1000). The three inputs switch on when it is set to calculated.
+    P("fan", "Fan power", "kW", "thermal", 70, (0, 0, 80, 95), precision=1,
+      formula="sqrt(3) * fanv * fani * fanpf / 1000", measured=True),
+    P("fanv", "Fan voltage (line to line)", "V", "thermal", 415, precision=0, active=False),
+    P("fani", "Fan current (line)", "A", "thermal", 115, precision=1, active=False),
+    P("fanpf", "Fan motor power factor", "", "thermal", 0.85, active=False),
     P("fanspd", "Fan speed", "%", "thermal", 100, precision=0),
     P("pumpspd", "Pump speed", "%", "thermal", 100, precision=0),
     P("pumppow", "Pump power", "kW", "thermal", 55, precision=1),
@@ -105,8 +119,12 @@ PARAMETERS = [
     P("valve", "Bypass valve open", "", "indication", 0, precision=0),
     P("sspump", "Side-stream pump running", "", "indication", 1, precision=0),
     # Calculated: chemistry
-    P("lsi", "LSI (demo formula)", "", "chemistry", limits=(-1, -0.5, 0.8, 1.5),
-      formula="ph - 7.6 + (hard - 400) / 800 + (alk - 250) / 600"),
+    # LSI = pH - pHs, pHs = (9.3 + A + B) - (C + D); A = (log10(TDS) - 1) / 10,
+    # B = -13.12 log10(T + 273.15) + 34.55 (T = return temperature, the hottest water),
+    # C = log10(hardness) - 0.4, D = log10(alkalinity).
+    P("lsi", "LSI (Langelier Saturation Index)", "", "chemistry", limits=(-1, -0.5, 0.8, 1.5),
+      formula="ph - ((9.3 + (log10(tds) - 1) / 10 + (34.55 - 13.12 * log10(tr + 273.15)))"
+              " - ((log10(hard) - 0.4) + log10(alk)))"),
     # Calculated: thermal efficiency KPIs
     P("range", "Range", "°C", "thermal", limits=(3, 5, 10, 12), formula="tr - ts", precision=1),
     P("appr", "Approach", "°C", "thermal", limits=(2, 3, 6, 8), formula="ts - wbt", precision=1),
@@ -314,7 +332,8 @@ MODULES = [
             {
                 "type": "value_tiles",
                 "title": "Calculated values",
-                "params": ["lsi", "range", "appr", "resid", "heat", "dp", "rem", "bw"],
+                "params": ["lsi", "range", "appr", "resid", "heat", "fan", "dp", "rem", "bw"],
+                "only_calculated": True,
             },
         ],
     ),

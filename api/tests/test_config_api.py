@@ -116,6 +116,44 @@ def test_parameters_used_by_formulas_or_rules_cannot_be_deactivated(api: Call) -
     assert {"parameter 'lsi'", "rule 'TH-P01'", "rule 'TH-P02'"} <= users
 
 
+def test_dp_can_be_switched_to_measured_and_back(api: Call, owner_db: Session) -> None:
+    response = api("PATCH", "/parameters/dp", json={"kind": "input"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["kind"] == "input"
+    assert body["formula"] == "pin - pout"  # kept for switching back
+    # A measured parameter cannot get a different formula.
+    response = api("PATCH", "/parameters/dp", json={"formula": "pin - pout - 0.1"})
+    assert response.status_code == 422
+
+    back = api("PATCH", "/parameters/dp", json={"kind": "calculated"}).json()
+    assert (back["kind"], back["formula"], back["formula_version"]) == (
+        "calculated",
+        "pin - pout",
+        1,
+    )
+
+
+def test_switching_fan_power_to_calculated_turns_on_its_inputs(api: Call) -> None:
+    params = {p["key"]: p for p in api("GET", "/parameters").json()}
+    assert params["fan"]["kind"] == "input"
+    assert not any(params[k]["is_active"] for k in ("fanv", "fani", "fanpf"))
+
+    response = api("PATCH", "/parameters/fan", json={"kind": "calculated"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["formula"] == "sqrt(3) * fanv * fani * fanpf / 1000"
+    params = {p["key"]: p for p in api("GET", "/parameters").json()}
+    assert all(params[k]["is_active"] for k in ("fanv", "fani", "fanpf"))
+    # Now used by the formula, so they cannot be switched off.
+    assert api("PATCH", "/parameters/fanv", json={"is_active": False}).status_code == 409
+
+    # Back to measured: the inputs are free again.
+    assert api("PATCH", "/parameters/fan", json={"kind": "input"}).json()["kind"] == "input"
+    assert api("PATCH", "/parameters/fanv", json={"is_active": False}).status_code == 200
+
+
 def test_unused_parameters_can_be_deactivated_and_reactivated(api: Call) -> None:
     # tssout (outlet TSS) is shown on screens but used by no formula or rule.
     assert (

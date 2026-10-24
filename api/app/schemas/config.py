@@ -49,6 +49,9 @@ class ParameterUpdate(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=100)
     unit: str | None = Field(default=None, max_length=30)
     group_key: str | None = Field(default=None, min_length=1, max_length=40)
+    # Switch between measured (typed in or from a PLC) and calculated. A measured parameter
+    # keeps its formula, so switching back needs no retyping.
+    kind: Literal["input", "calculated"] | None = None
     formula: str | None = None
     precision: int | None = Field(default=None, ge=0, le=6)
     sort_order: int | None = None
@@ -187,6 +190,9 @@ class InputGroupWidget(_Widget):
 class ValueTilesWidget(_Widget):
     type: Literal["value_tiles"]
     params: Keys
+    # Show only the listed parameters that are currently calculated (a measured one is then
+    # shown with the inputs instead).
+    only_calculated: bool = False
 
 
 class TrendChartWidget(_Widget):

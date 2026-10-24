@@ -88,6 +88,10 @@ def _log(x: Value) -> Value:
     return math.log(x) if _num(x) and x > 0 else None  # type: ignore[operator,arg-type]
 
 
+def _log10(x: Value) -> Value:
+    return math.log10(x) if _num(x) and x > 0 else None  # type: ignore[operator,arg-type]
+
+
 def _exp(x: Value) -> Value:
     if not _num(x):
         return None
@@ -119,6 +123,7 @@ MATH_FUNCTIONS: dict[str, Callable[..., Value]] = {
     "round": _round,
     "sqrt": _sqrt,
     "log": _log,
+    "log10": _log10,
     "exp": _exp,
     "coalesce": _coalesce,
 }

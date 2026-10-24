@@ -30,7 +30,9 @@ def _limits_of(p: Parameter) -> tuple[float | None, ...]:
 
 def _update_parameter(p: Parameter, tp: TemplateParameter) -> bool:
     before = (p.label, p.unit, p.group_key, p.formula, p.precision, _limits_of(p))
-    if p.kind == "calculated" and tp.formula is not None and p.formula != tp.formula:
+    # The formula is refreshed for measured parameters too (kept for switching to calculated);
+    # whether a parameter is measured or calculated is the company's choice and is kept.
+    if tp.formula is not None and p.formula != tp.formula:
         p.formula = tp.formula
         p.formula_version += 1
     p.label, p.unit, p.group_key, p.precision = tp.label, tp.unit, tp.group, tp.precision
@@ -73,9 +75,9 @@ def apply_template(
             continue
         p = Parameter(
             company_id=cid, key=tp.key, label=tp.label, unit=tp.unit, group_key=tp.group,
-            kind="calculated" if tp.formula else "input", formula=tp.formula,
-            formula_version=1 if tp.formula else 0, precision=tp.precision,
-            sort_order=order * 10, sample_value=tp.sample,
+            kind=tp.kind, formula=tp.formula, formula_version=1 if tp.formula else 0,
+            precision=tp.precision, sort_order=order * 10, sample_value=tp.sample,
+            is_active=tp.active,
         )  # fmt: skip
         if tp.limits:
             (p.default_warn_min, p.default_good_min, p.default_good_max, p.default_warn_max) = (

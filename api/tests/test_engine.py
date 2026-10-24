@@ -34,6 +34,7 @@ def run(source: str, **variables: float | None) -> object:
         ("abs(ts - tr)", 8.0),
         ("round(tr / 3, 1)", 13.0),
         ("sqrt(16)", 4.0),
+        ("log10(flow)", 3.0),
         ("if_else(tr > ts, 1, 0)", 1),
         ("tr > ts and ts > 0", True),
         ("not (tr > ts)", False),
@@ -51,6 +52,7 @@ def test_formulas_evaluate(source: str, expected: object) -> None:
         "a / 0",  # division by zero
         "sqrt(-1)",
         "log(0)",
+        "log10(-5)",
         "exp(10000)",  # overflow
         "10 ** 1000",  # exponent above the cap
         "9 ** 9 ** 9",

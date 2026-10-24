@@ -117,6 +117,8 @@ def _widget_view(
             switches=widget.get("switches") or None,
         )
     if kind in ("value_tiles", "inputs_summary"):
+        if widget.get("only_calculated"):
+            params = [k for k in params if k not in state.params or state.params[k].kind != "input"]
         return WidgetView(type=kind, title=title, tiles=[state.tile(k) for k in params])
     if kind == "predicted_problems":
         codes = set(widget.get("rules") or [])

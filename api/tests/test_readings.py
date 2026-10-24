@@ -14,7 +14,7 @@ from app.models import OperatorProfile, Reading
 from app.templates.default import PARAMETERS
 from tests.helpers import Tenant, login, make_tenant, make_user, with_template
 
-SAMPLE_INPUTS = {p.key: p.sample for p in PARAMETERS if not p.formula}
+SAMPLE_INPUTS = {p.key: p.sample for p in PARAMETERS if p.kind == "input" and p.active}
 
 
 @pytest.fixture
@@ -324,12 +324,44 @@ def test_water_chemistry_shows_editable_inputs_and_calculated_values(
     assert view["reading"]["created_by"]["name"] == "Acme-Manager"
 
 
+def test_measured_dp_and_calculated_fan_power(
+    client: TestClient, acme: Tenant, owner_db: Session
+) -> None:
+    make_user(owner_db, "root", "super_admin")
+    root_headers = login(client, "root")
+    config = f"/api/v1/companies/{acme.company_id}/parameters"
+    assert client.patch(f"{config}/dp", json={"kind": "input"}, headers=root_headers).is_success
+    assert client.patch(
+        f"{config}/fan", json={"kind": "calculated"}, headers=root_headers
+    ).is_success
+    first_reading(client, acme)
+    response = save(
+        client, acme, "acme-operator", {"dp": 0.9, "fanv": 415, "fani": 115, "fanpf": 0.85}
+    )
+    assert response.status_code == 201, response.text
+
+    view = module(client, acme, "water_chemistry")
+    rows = {w["title"]: [t["key"] for t in w["tiles"] or []] for w in view["widgets"]}
+    # dP is typed in with the filter inputs, no longer listed under calculated values.
+    assert "dp" in rows["Side-stream filter"] and "dp" not in rows["Calculated values"]
+    # Fan power moves from the thermal inputs to the calculated values.
+    assert {"fanv", "fani", "fanpf"} <= set(rows["Thermal"]) and "fan" not in rows["Thermal"]
+    assert "fan" in rows["Calculated values"]
+    all_tiles = tiles(view)
+    assert all_tiles["dp"]["value"] == 0.9 and all_tiles["dp"]["editable"] is True
+    assert all_tiles["fan"]["value"] == pytest.approx(70.26, abs=0.01)
+    # Typing pin/pout no longer changes the measured dP.
+    save(client, acme, "acme-operator", {"pin": 3.0})
+    assert tiles(module(client, acme, "water_chemistry"))["dp"]["value"] == 0.9
+
+
 def test_filter_and_thermal_update_when_chemistry_changes(client: TestClient, acme: Tenant) -> None:
     first_reading(client, acme)
     thermal_before = module(client, acme, "thermal")
     filter_before = module(client, acme, "filter")
 
-    save(client, acme, "acme-operator", {"tds": 2300, "hard": 900})
+    # LSI and hardness are already off with the samples; alkalinity adds a third sign.
+    save(client, acme, "acme-operator", {"tds": 2300, "hard": 900, "alk": 500})
 
     thermal = module(client, acme, "thermal")
     filter_ = module(client, acme, "filter")

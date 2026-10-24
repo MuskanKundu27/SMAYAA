@@ -23,8 +23,12 @@ from app.templates.default import DEFAULT_TEMPLATE as T
 from tests.helpers import login, make_tenant, make_user, with_template
 
 KEYS = {p.key for p in T.parameters}
-FORMULAS = {p.key: parse_formula(p.formula) for p in T.parameters if p.formula}
-SAMPLES = {p.key: p.sample for p in T.parameters if not p.formula}
+FORMULAS = {p.key: parse_formula(p.formula) for p in T.parameters if p.kind == "calculated"}
+SAMPLES = {p.key: p.sample for p in T.parameters if p.kind == "input"}
+# Formulas kept on measured parameters (used when a company switches them to calculated).
+MEASURED_FORMULAS = {
+    p.key: parse_formula(p.formula) for p in T.parameters if p.formula and p.kind == "input"
+}
 BASELINE = T.plant_setting_defaults["clean_baseline_approach"]
 SETTINGS = {k: float(v) for k, v in T.plant_setting_defaults.items()}
 
@@ -69,7 +73,16 @@ def test_sample_values_give_the_expected_kpis() -> None:
     assert results["dp"] == pytest.approx(0.6)
     assert results["rem"] == pytest.approx(83.333, rel=1e-3)
     assert results["bw"] == 3.0
-    assert results["lsi"] == pytest.approx(0.6958, rel=1e-3)
+    # LSI = pH - pHs with TDS 1500, return temperature 39 °C, hardness 650, alkalinity 300.
+    assert results["lsi"] == pytest.approx(1.448, abs=1e-3)
+
+
+def test_fan_power_formula_for_when_it_is_calculated() -> None:
+    assert set(MEASURED_FORMULAS) == {"fan"}
+    results = calculate(SAMPLES, {"fan": MEASURED_FORMULAS["fan"]}, BASELINE, None, SETTINGS)
+
+    # sqrt(3) x 415 V x 115 A x 0.85 / 1000
+    assert results["fan"] == pytest.approx(70.26, abs=0.01)
 
 
 def test_limits_are_ordered() -> None:

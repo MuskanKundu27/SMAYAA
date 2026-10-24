@@ -66,7 +66,7 @@ api/                      Backend (FastAPI, Python 3.12)
     scripts/seed_dev.py   Demo data for local development
     scripts/create_platform_admin.py  Creates the first platform admin (all environments)
   migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS,
-                          0004 readings + RLS
+                          0004 readings + RLS, 0005 measured parameters may keep a formula
   scripts/                create_dev_db.sql, grant_app_role.sql, docker-init-db.sh
   tests/                  pytest: conftest (test DB setup), helpers (data builders), test_*.py
 web/                      Frontend (React 19 + TypeScript + Vite + react-router 7)
@@ -276,7 +276,7 @@ Code checks **permission strings**, never role names: `principal.require("plants
 ### 8.6a Calculation engine (`app/engine/`)
 Pure functions, no database, so they are easy to test and reuse.
 - **`evaluator.py`:** `parse(source, functions=None)` turns text into a checked `Expression`. It uses Python's `ast` parser, then rejects everything not on a whitelist:
-  - **Allowed:** numbers, strings (for helper arguments), names, `+ - * / **`, comparisons (chains allowed), `and/or/not`, lists, and calls to `min max abs round sqrt log exp if_else coalesce` (plus the time functions, and the rule helpers when parsing rules). `coalesce(a, b, ...)` returns the first argument with a value, e.g. `coalesce(load, 100)` for an optional input.
+  - **Allowed:** numbers, strings (for helper arguments), names, `+ - * / **`, comparisons (chains allowed), `and/or/not`, lists, and calls to `min max abs round sqrt log log10 exp if_else coalesce` (plus the time functions, and the rule helpers when parsing rules). `coalesce(a, b, ...)` returns the first argument with a value, e.g. `coalesce(load, 100)` for an optional input.
   - **Rejected:** attributes, indexing, lambdas, comprehensions, keyword arguments, unknown functions, more than 500 characters, more than 200 nodes.
 
   `Expression.references` lists every parameter key used, including string arguments to helpers like `off('ph')` and time functions like `rate('dp', 24)`. `Expression.required` is the subset whose **current** value must exist: keys used only inside `coalesce(...)` or a time function are optional. `Expression.history_hours` is how much history the time functions in it need (0 = none). `evaluate(expr, variables, functions)` **never raises for data problems**: a missing value, division by zero, `sqrt` of a negative, overflow, or an exponent above 100 all give `None` ("No data"). `if_else(cond, a, b)` evaluates only the chosen branch. **`eval`/`exec` are never used.**
@@ -318,14 +318,15 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
 - **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used).
 - **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
-- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles`, `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
 - **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
 ### 8.6c Templates (`app/templates/default.py`)
 - The default template is plain Python data and follows the engineering note's Thermal Efficiency and Side-Stream Filtration modules:
   - **Inputs (31):** chemistry (pH, conductivity, TDS, hardness, alkalinity, silica, microbial count); thermal (supply/return temperature, wet-bulb, circulating flow, fan power, fan speed, pump speed, pump power, pump discharge pressure, process load); side-stream filter (inlet/outlet pressure, side-stream flow, inlet/outlet turbidity, inlet/outlet TSS, cleaning/backwash status, backwash flow and time, oil-in-water, bypass valve status, side-stream pump status). Optional inputs have no limits; on/off inputs use 1 = yes.
-  - **Calculated (17): exactly the engineering note's KPIs (3.2 and 4.2) plus LSI.** LSI (demo); thermal (3.2): range, approach, heat load, expected approach (**demo model**; the note names the inputs WBT, heat load, flow, fan speed and clean baseline but gives no formula: clean baseline scaled for process load or heat load vs design, fan speed, flow vs design, wet-bulb vs design), approach residual (actual − expected), fan response (6 h; Δfan speed, else Δfan power), specific fan energy (fan kW per MW heat load); filtration (4.2): ΔP, removal efficiency, ΔP rate of change (per day, over 24 h), solids load proxy, cleaning interval (time between the last two cleanings), ΔP recovery, water per cleaning, m³ treated per cleaning (7 days); plus cleanings (7 days), the note's 4.1 "cleaning count". No extra KPIs (owner decision).
+  - **Measured or calculated (per company):** filter ΔP (default calculated `pin - pout`; measured = from a dP transmitter) and fan power (default measured from a kW meter; calculated = `sqrt(3) * fanv * fani * fanpf / 1000` from fan voltage, fan current and fan motor power factor, which ship **inactive** and are switched on automatically when fan power is set to calculated). Template fields: `TemplateParameter(measured=True, active=False)`. The super admin switches it in Configuration → Parameters → Edit → Source. "Update to latest template" keeps each company's choice.
+  - **Calculated (17): exactly the engineering note's KPIs (3.2 and 4.2) plus LSI.** LSI = pH − pHs, pHs = (9.3 + A + B) − (C + D), A = (log10 TDS − 1)/10, B = 34.55 − 13.12 log10(return temperature + 273.15), C = log10 hardness − 0.4, D = log10 alkalinity (engineers' sheet; constant and temperature to be confirmed); thermal (3.2): range, approach, heat load, expected approach (**demo model**; the note names the inputs WBT, heat load, flow, fan speed and clean baseline but gives no formula: clean baseline scaled for process load or heat load vs design, fan speed, flow vs design, wet-bulb vs design), approach residual (actual − expected), fan response (6 h; Δfan speed, else Δfan power), specific fan energy (fan kW per MW heat load); filtration (4.2): ΔP, removal efficiency, ΔP rate of change (per day, over 24 h), solids load proxy, cleaning interval (time between the last two cleanings), ΔP recovery, water per cleaning, m³ treated per cleaning (7 days); plus cleanings (7 days), the note's 4.1 "cleaning count". No extra KPIs (owner decision).
   - **Plant settings (defaults):** clean baseline approach 4 °C, design heat load 9304 kW, design flow 1000 m³/h, design wet-bulb 26 °C (expected approach), expected post-clean ΔP 0.2 bar (FLT-P05), minimum water per cleaning 2.5 m³ (FLT-P06).
   - **Rules (13):** FLT-P01..P07 and TH-P01..P06 as named in the note. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
   - **Modules (3):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.
@@ -433,7 +434,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | POST | `/users` | users.manage:&lt;role&gt; | `{username, full_name, password, role, plant_id?, company_id?}` |
 | DELETE | `/users/{id}` | users.manage:&lt;role&gt; | Deactivates; response `{user, warnings}` |
 | GET / POST | `/companies/{id}/parameters` | config.manage | List all (incl. inactive) / create (validated) |
-| PATCH | `/companies/{id}/parameters/{key}` | config.manage | Update; `is_active: false` refused (409) while used |
+| PATCH | `/companies/{id}/parameters/{key}` | config.manage | Update; `is_active: false` refused (409) while used; `kind` switches measured (`input`) and `calculated` (the formula is kept while measured; switching to calculated activates the inputs it needs) |
 | POST | `/companies/{id}/formulas/test` | config.manage | `{formula, values?, base?}` → `{ok, result, references, error}` |
 | GET / PUT | `/companies/{id}/treatments` | config.manage | List / upsert by `parameter_key` + `direction` |
 | GET / POST | `/companies/{id}/rules` | config.manage | List / create |
@@ -481,7 +482,7 @@ audit_log         id, company_id NULL, actor_id, action, entity, entity_id, befo
 
 -- 0003 configuration
 parameters        id, company_id, key (unique per company), label, unit, group_key, kind (input|calculated),
-                  formula (required iff calculated), formula_version, precision, sort_order, is_active,
+                  formula (required when calculated; a measured parameter may keep one, 0005), formula_version, precision, sort_order, is_active,
                   sample_value, default_warn_min/good_min/good_max/warn_max (all or none)
 limits            (plant_id, parameter_id) PK, company_id, warn_min, good_min, good_max, warn_max
                   (check: ordered), updated_by, updated_at

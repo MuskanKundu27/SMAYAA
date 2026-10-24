@@ -73,7 +73,7 @@ export function ParametersTab({ companyId }: { companyId: string }) {
                       <code>{p.formula}</code> <span className="muted">v{p.formula_version}</span>
                     </>
                   ) : (
-                    <span className="muted">input</span>
+                    <span className="muted">{p.formula ? 'measured (can be calculated)' : 'input'}</span>
                   )}
                 </td>
                 <td className="nowrap">{limitsText(p)}</td>
@@ -156,7 +156,7 @@ function ParameterEditor({ companyId, parameter, onClose, onSaved }: EditorProps
         await createParameter(companyId, { ...body, key: key.trim(), kind })
         onSaved(`Parameter ${key} was added. Add it to a module so plants can see it.`)
       } else {
-        await updateParameter(companyId, parameter.key, { ...body, is_active: active })
+        await updateParameter(companyId, parameter.key, { ...body, kind, is_active: active })
         onSaved(`Parameter ${parameter.key} was saved.`)
       }
     } catch (err) {
@@ -175,11 +175,24 @@ function ParameterEditor({ companyId, parameter, onClose, onSaved }: EditorProps
         <small className="muted">Lower-case, used in formulas. Cannot be changed later.</small>
       </label>
       <label className="field">
-        <span>Kind</span>
-        <select value={kind} onChange={(e) => setKind(e.target.value as 'input' | 'calculated')} disabled={!isNew}>
-          <option value="input">Input (typed in)</option>
+        <span>Source</span>
+        <select
+          value={kind}
+          onChange={(e) => {
+            setKind(e.target.value as 'input' | 'calculated')
+            setTest(null)
+          }}
+        >
+          <option value="input">Measured (typed in or from PLC)</option>
           <option value="calculated">Calculated (formula)</option>
         </select>
+        {!isNew && kind !== parameter.kind && (
+          <small className="muted">
+            {kind === 'input'
+              ? 'The formula is kept, so you can switch back later.'
+              : 'Inputs the formula needs are switched on automatically.'}
+          </small>
+        )}
       </label>
       <label className="field">
         <span>Label</span>
@@ -227,7 +240,7 @@ function ParameterEditor({ companyId, parameter, onClose, onSaved }: EditorProps
             </button>
           </div>
           <small className="muted">
-            Allowed: + − × ÷ ** ( ), comparisons, and/or/not, min max abs round sqrt log exp if_else
+            Allowed: + − × ÷ ** ( ), comparisons, and/or/not, min max abs round sqrt log log10 exp if_else
             coalesce. Over time: change(&apos;k&apos;, h), rate(&apos;k&apos;, h), avg, total, events(&apos;e&apos;, h),
             hours_since(&apos;e&apos;), event_interval(&apos;e&apos;), before_event(&apos;k&apos;, &apos;e&apos;), after_event(&apos;k&apos;, &apos;e&apos;)
             (h = hours; e = an on/off input such as cleaning). Plant values: setting(&apos;design_flow&apos;);

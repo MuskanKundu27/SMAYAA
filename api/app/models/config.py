@@ -42,8 +42,9 @@ class Parameter(Base):
     __table_args__ = (
         UniqueConstraint("company_id", "key", name="uq_parameters_company_key"),
         CheckConstraint("kind IN ('input', 'calculated')", name="kind_valid"),
+        # A measured (input) parameter may keep a formula for switching back to calculated.
         CheckConstraint(
-            "(kind = 'calculated') = (formula IS NOT NULL)", name="formula_iff_calculated"
+            "kind <> 'calculated' OR formula IS NOT NULL", name="calculated_has_formula"
         ),
         CheckConstraint(ALL_OR_NO_LIMITS, name="default_limits_complete"),
     )

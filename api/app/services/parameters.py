@@ -195,16 +195,29 @@ def update_parameter(
                 [{"field": "is_active", "message": u} for u in users],
             )
 
+    new_kind = changes.get("kind") or p.kind
+    kind_changed = new_kind != p.kind
     new_formula = changes.get("formula", p.formula)
-    if "formula" in changes and p.kind == "input" and new_formula:
-        raise expression_error("formula", "Typed-in parameters do not have a formula.")
-    becomes_active = changes.get("is_active", p.is_active)
     formula_changed = "formula" in changes and new_formula != p.formula
-    if p.kind == "calculated" and becomes_active and (formula_changed or not p.is_active):
+    if formula_changed and new_kind == "input":
+        raise expression_error("formula", "Measured parameters do not use a formula.")
+    becomes_active = changes.get("is_active", p.is_active)
+    activated: list[Parameter] = []
+    if (
+        new_kind == "calculated"
+        and becomes_active
+        and (formula_changed or kind_changed or not p.is_active)
+    ):
         if not new_formula:
             raise expression_error("formula", "A calculated parameter needs a formula.")
+        active = active_parameters(db, company_id)
+        if kind_changed:
+            # Switching to calculated turns on the inputs its formula needs (e.g. fan voltage,
+            # current and power factor for fan power), so the switch is one step.
+            activated = _inactive_inputs_used(db, company_id, new_formula, active)
+            active.update({q.key: q for q in activated})
         validate_formula(
-            key, new_formula, active_parameters(db, company_id),
+            key, new_formula, active,
             plant_setting_default(company, "clean_baseline_approach"), setting_defaults(company),
         )  # fmt: skip
 
@@ -215,6 +228,14 @@ def update_parameter(
         _set_default_limits(p, data.default_limits)
     if "is_active" in changes:
         p.is_active = changes["is_active"]
+    p.kind = new_kind  # a measured parameter keeps its formula for switching back
+    for q in activated:
+        q.is_active = True
+        q.updated_at = datetime.now(UTC)
+        audit.record(
+            db, principal, "parameter.update", "parameter", q.id, company_id=company_id,
+            before={"is_active": False}, after={"is_active": True, "reason": f"used by {key}"},
+        )  # fmt: skip
     if formula_changed:
         p.formula = new_formula
         p.formula_version += 1  # old readings keep the version they were calculated with
@@ -226,6 +247,20 @@ def update_parameter(
     )  # fmt: skip
     db.commit()
     return p
+
+
+def _inactive_inputs_used(
+    db: Session, company_id: uuid.UUID, formula: str, active: dict[str, Parameter]
+) -> list[Parameter]:
+    try:
+        references = parse_formula(formula).references
+    except ExpressionError:
+        return []  # validate_formula reports the syntax error
+    return [
+        p
+        for p in all_parameters(db, company_id)
+        if p.key in references and p.key not in active and p.kind == "input"
+    ]
 
 
 def test_formula(
