@@ -120,10 +120,11 @@ PARAMETERS = [
     P("sspump", "Side-stream pump running", "", "indication", 1, precision=0),
     # Calculated: chemistry
     # LSI = pH - pHs, pHs = (9.3 + A + B) - (C + D); A = (log10(TDS) - 1) / 10,
-    # B = -13.12 log10(T + 273.15) + 34.55 (T = return temperature, the hottest water),
-    # C = log10(hardness) - 0.4, D = log10(alkalinity).
-    P("lsi", "LSI (Langelier Saturation Index)", "", "chemistry", limits=(-1, -0.5, 0.8, 1.5),
-      formula="ph - ((9.3 + (log10(tds) - 1) / 10 + (34.55 - 13.12 * log10(tr + 273.15)))"
+    # B = -13.12 log10(T + 273.15) + 34 (T = return temperature, the hottest water),
+    # C = log10(total hardness) - 0.4, D = log10(alkalinity). Limits: 0 to 1.5 good (slightly
+    # scale-forming, held by inhibitor), below 0 corrosive, above 2.5 = common upper ceiling.
+    P("lsi", "LSI (Langelier Saturation Index)", "", "chemistry", limits=(-0.5, 0, 1.5, 2.5),
+      formula="ph - ((9.3 + (log10(tds) - 1) / 10 + (34 - 13.12 * log10(tr + 273.15)))"
               " - ((log10(hard) - 0.4) + log10(alk)))"),
     # Calculated: thermal efficiency KPIs
     P("range", "Range", "°C", "thermal", limits=(3, 5, 10, 12), formula="tr - ts", precision=1),

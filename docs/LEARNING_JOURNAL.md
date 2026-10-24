@@ -612,7 +612,7 @@ Every parameter already had a "kind": input (typed in) or calculated (formula). 
 **What to learn**
 - Prefer one general switch ("measured or calculated") over special code for each parameter; the next parameter that needs the same choice gets it for free.
 - When rules inside the database (check constraints) block a new feature, change them with a migration, never by hand.
-- A more correct formula can change results a lot (LSI went from 0.70 to 1.45 with the same data), so limits set for the old formula must be reviewed too.
+- A more correct formula can change results a lot (LSI went from 0.70 to 2.00 with the same data), so limits set for the old formula must be reviewed too. We set new LSI limits from published guidance: about 0 to 1.5 is good (slightly scale-forming, controlled by the treatment chemicals), below 0 the water tends to corrode, and 2.5 is a common upper ceiling.
 
 ---
 
