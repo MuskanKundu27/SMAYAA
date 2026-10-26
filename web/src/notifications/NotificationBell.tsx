@@ -115,7 +115,6 @@ export function NotificationBell({ userId, plantId }: { userId: string; plantId:
                       </li>
                     ))}
                   </ul>
-                  <p className="disclaimer">Probabilities are demo heuristics, not engineering guarantees.</p>
                 </section>
               )}
             </>

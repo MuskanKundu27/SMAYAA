@@ -6,6 +6,7 @@ import type { Module, Parameter, Rule, RuleTestResult } from '../../api/types'
 import { parseInput } from '../../format'
 import { ErrorText, Loading, Notice, StatusBadge } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
+import { useScrollToTop } from '../../components/scroll'
 
 export function RulesTab({ companyId }: { companyId: string }) {
   const rules = useLoad(() => listRules(companyId), [companyId])
@@ -92,6 +93,7 @@ interface EditorProps {
 }
 
 function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: EditorProps) {
+  useScrollToTop()
   const isNew = rule === null
   const inputs = parameters.filter((p) => p.is_active && p.kind === 'input')
   const [code, setCode] = useState(rule?.code ?? '')

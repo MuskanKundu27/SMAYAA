@@ -360,11 +360,6 @@ MODULES = [
                            "bwf", "bwt", "oil", "valve", "sspump"],
             },
             {"type": "predicted_problems", "title": "Predicted problems", "rules": FILTER_RULES},
-            {
-                "type": "text_note",
-                "text": "Trend KPIs (rate of change, forecasts, cleaning interval, ΔP recovery) "
-                "need a few readings over time before they show a value.",
-            },
         ],
     ),
     TemplateModule(
@@ -389,12 +384,6 @@ MODULES = [
                            "pumpp", "load", "tin", "tssin"],
             },
             {"type": "predicted_problems", "title": "Predicted problems", "rules": THERMAL_RULES},
-            {
-                "type": "text_note",
-                "text": "Expected approach is a demo model: the plant's clean baseline approach "
-                "scaled for heat load (or process load), fan speed, flow and wet-bulb against "
-                "the plant's design values. Approach residual = actual minus expected.",
-            },
         ],
     ),
 ]  # fmt: skip

@@ -5,6 +5,7 @@ import { createModule, listConfigModules, updateModule } from '../../api/admin'
 import type { Module } from '../../api/types'
 import { ErrorText, Loading, Notice, StatusBadge } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
+import { useScrollToTop } from '../../components/scroll'
 
 const EXAMPLE = `{
   "widgets": [
@@ -112,6 +113,7 @@ interface EditorProps {
 }
 
 function ModuleEditor({ companyId, module, onClose, onSaved }: EditorProps) {
+  useScrollToTop()
   const isNew = module === null
   const [key, setKey] = useState(module?.key ?? '')
   const [title, setTitle] = useState(module?.title ?? '')

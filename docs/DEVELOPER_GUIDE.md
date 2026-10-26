@@ -412,7 +412,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **Companies** (platform admin): create with the first company admin (gets the default template), deactivate/reactivate, link to Configuration.
   - **Configuration** (platform admin, `?company=&tab=` in the URL): Parameters & formulas (editor with live formula test on sample values, default limits, deactivate), Treatments (pick parameter + direction, needs-review flag), Rules (editor with module checkboxes and a test panel with editable input values), Modules (title, order, active, layout as validated JSON, warnings for missing references), Template (apply default; adds only what is missing).
   - **Audit log:** newest first, filter by company (platform) and entity, paging, changed fields per entry.
-- **Labels:** predicted problems show "Probabilities are demo heuristics, not engineering guarantees."
+- **Labels:** the "demo heuristics" line under predicted problems and the explanatory notes on the Filtration and Thermal screens were removed at the owner's request (2026-10-26); the probabilities are still demo heuristics (see 8.6c).
 - **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette; status colours good/warn/bad/na). To be aligned with the original SMAYAA demo design once the reference files are available.
 
 ## 9. API endpoints (all under `/api/v1`)

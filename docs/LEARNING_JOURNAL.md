@@ -594,6 +594,8 @@ We removed the explanation paragraphs at the top of the Configuration tabs (Para
 **Why**
 The person who uses these screens already knows them, and the long paragraphs pushed the useful content down. Explanations now live in the developer guide.
 
+**Later (2026-10-26):** the owner also removed the "demo heuristics" line under predicted problems and the explanation notes at the bottom of the Filtration and Thermal screens. The numbers behind the predictions are still first versions; that is now recorded in the documentation instead of on the screen.
+
 **What to learn**
 - Screen text should help the user act, not teach the whole system. Keep warnings that prevent mistakes; move background explanations into documentation.
 

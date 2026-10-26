@@ -8,6 +8,7 @@ import { LIMIT_FIELDS, parseDraft, toDraft } from '../limits'
 import type { LimitDraft } from '../limits'
 import { ErrorText, Loading, Notice, StatusBadge } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
+import { useScrollToTop } from '../../components/scroll'
 
 const limitsText = (p: Parameter) =>
   p.default_limits
@@ -102,6 +103,7 @@ interface EditorProps {
 }
 
 function ParameterEditor({ companyId, parameter, onClose, onSaved }: EditorProps) {
+  useScrollToTop()
   const isNew = parameter === null
   const [key, setKey] = useState(parameter?.key ?? '')
   const [label, setLabel] = useState(parameter?.label ?? '')

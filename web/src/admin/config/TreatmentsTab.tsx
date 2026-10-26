@@ -5,6 +5,7 @@ import { listParameters, listTreatments, saveTreatments } from '../../api/admin'
 import type { Direction, Treatment } from '../../api/types'
 import { ErrorText, Loading, Notice } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
+import { useScrollToTop } from '../../components/scroll'
 
 interface Selection {
   parameterKey: string
@@ -142,6 +143,7 @@ interface EditorProps {
 }
 
 function TreatmentEditor({ companyId, selection, label, existing, onClose, onSaved }: EditorProps) {
+  useScrollToTop()
   const [cause, setCause] = useState(existing?.cause ?? '')
   const [treatment, setTreatment] = useState(existing?.treatment ?? '')
   const [precautions, setPrecautions] = useState(existing?.precautions ?? '')

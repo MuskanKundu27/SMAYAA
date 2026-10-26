@@ -89,9 +89,6 @@ export function PredictedProblemsWidget({ widget }: WidgetProps) {
       {insufficient.length > 0 && (
         <p className="muted">Insufficient data to evaluate: {insufficient.join(', ')}.</p>
       )}
-      <p className="disclaimer">
-        Probabilities are demo heuristics, not engineering guarantees.
-      </p>
     </Section>
   )
 }
