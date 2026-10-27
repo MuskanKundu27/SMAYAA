@@ -6,7 +6,8 @@ import type { ReactNode } from 'react'
 import { getModuleTrend } from '../api/plant'
 import type { Alert, PredictedProblem, TrendSeries, WidgetView } from '../api/types'
 import { TileCard } from '../components/TileCard'
-import { formatDateTime, formatEta, formatValue, limitsText, rangeLabel } from '../format'
+import { formatValue, limitsText, rangeLabel } from '../format'
+import { LineChart } from './charts'
 import { useModuleLocation } from './moduleContext'
 
 /** `index` is the widget's position in the module layout. */
@@ -93,7 +94,6 @@ function ProblemsTable({ problems }: { problems: PredictedProblem[] }) {
           <th>Issue</th>
           <th>Severity</th>
           <th>Probability</th>
-          <th>ETA</th>
         </tr>
       </thead>
       <tbody>
@@ -117,7 +117,6 @@ function ProblemsTable({ problems }: { problems: PredictedProblem[] }) {
                 </span>
               )}
             </td>
-            <td className="nowrap">{formatEta(p.eta_hours)}</td>
           </tr>
         ))}
       </tbody>
@@ -211,110 +210,12 @@ export function AlertListWidget({ widget }: WidgetProps) {
 }
 
 function TrendChart({ series }: { series: TrendSeries }) {
-  const width = 320
-  const height = 90
-  const points = series.points.filter((p) => p.v !== null) as { t: string; v: number }[]
-  if (points.length < 2) {
-    return <p className="muted">{series.label}: not enough history yet.</p>
-  }
-  const values = points.map((p) => p.v)
-  const lo = Math.min(...values, series.limits?.warn_min ?? Infinity)
-  const hi = Math.max(...values, series.limits?.warn_max ?? -Infinity)
-  const y = (v: number) => (hi === lo ? height / 2 : height - ((v - lo) / (hi - lo)) * height)
-  const x = (i: number) => (i / (points.length - 1)) * width
-  const path = points.map((p, i) => `${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ')
   return (
     <figure className="trend">
       <figcaption>
-        {series.label} <span className="muted">({series.unit})</span>
+        {series.label} {series.unit && <span className="muted">({series.unit})</span>}
       </figcaption>
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${series.label} trend`}>
-        {series.limits && (
-          <rect
-            className="trend__good"
-            x={0}
-            width={width}
-            y={y(series.limits.good_max)}
-            height={Math.max(y(series.limits.good_min) - y(series.limits.good_max), 1)}
-          />
-        )}
-        <polyline className="trend__line" points={path} />
-      </svg>
-      <div className="trend__axis muted">
-        <span>{formatDateTime(points[0].t)}</span>
-        <span>{formatDateTime(points[points.length - 1].t)}</span>
-      </div>
-    </figure>
-  )
-}
-
-const SERIES_COLOURS = ['var(--blue)', '#e8590c', '#2f9e44', '#7048e8']
-
-/** One or more series in one chart: the first on the left axis (with its good range as a
- *  band), the others on the right axis. */
-function CombinedChart({ series }: { series: TrendSeries[] }) {
-  const width = 320
-  const height = 110
-  const lines = series.map((s) => ({
-    series: s,
-    points: s.points.filter((p) => p.v !== null).map((p) => ({ t: Date.parse(p.t), v: p.v as number })),
-  }))
-  const all = lines.flatMap((l) => l.points)
-  if (all.length < 2) return <p className="muted">Not enough history yet.</p>
-
-  const t0 = Math.min(...all.map((p) => p.t))
-  const t1 = Math.max(...all.map((p) => p.t))
-  const x = (t: number) => (t1 === t0 ? width / 2 : ((t - t0) / (t1 - t0)) * width)
-  const axis = (values: number[]) => {
-    const lo = Math.min(...values)
-    const hi = Math.max(...values)
-    return { lo, hi, y: (v: number) => (hi === lo ? height / 2 : height - 4 - ((v - lo) / (hi - lo)) * (height - 8)) }
-  }
-  const firstLimits = series[0].limits
-  const left = axis(
-    lines[0].points
-      .map((p) => p.v)
-      .concat(firstLimits ? [firstLimits.good_min, firstLimits.good_max] : [])
-      .concat(lines[0].points.length ? [] : [0]),
-  )
-  const rightValues = lines.slice(1).flatMap((l) => l.points.map((p) => p.v))
-  const right = rightValues.length ? axis(rightValues) : left
-
-  return (
-    <figure className="trend trend--plain">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={series.map((s) => s.label).join(' and ')}>
-        {firstLimits && (
-          <rect
-            className="trend__good"
-            x={0}
-            width={width}
-            y={left.y(firstLimits.good_max)}
-            height={Math.max(left.y(firstLimits.good_min) - left.y(firstLimits.good_max), 1)}
-          />
-        )}
-        {lines.map((line, i) => {
-          const scale = i === 0 ? left : right
-          const path = line.points.map((p) => `${x(p.t).toFixed(1)},${scale.y(p.v).toFixed(1)}`).join(' ')
-          return <polyline key={line.series.key} className="trend__series" stroke={SERIES_COLOURS[i % 4]} points={path} />
-        })}
-      </svg>
-      <div className="trend__axis muted">
-        <span>{formatDateTime(new Date(t0).toISOString())}</span>
-        <span>{formatDateTime(new Date(t1).toISOString())}</span>
-      </div>
-      <ul className="trend__legend">
-        {lines.map((line, i) => {
-          const latest = line.points[line.points.length - 1]
-          return (
-            <li key={line.series.key}>
-              <span className="trend__swatch" style={{ background: SERIES_COLOURS[i % 4] }} />
-              {line.series.label}
-              {line.series.unit && <span className="muted"> ({line.series.unit})</span>}
-              {latest && <strong> {formatValue(latest.v)}</strong>}
-            </li>
-          )
-        })}
-      </ul>
+      <LineChart series={[series]} />
     </figure>
   )
 }
@@ -364,7 +265,7 @@ export function TrendChartWidget({ widget, index }: WidgetProps) {
   let body: ReactNode
   if (failed && hours !== initial) body = <p className="form-error">Could not load this time range.</p>
   else if (series === null) body = <p className="muted">Loading…</p>
-  else if (widget.combine || ranges.length > 0) body = <CombinedChart series={series} />
+  else if (widget.combine || ranges.length > 0) body = <LineChart series={series} />
   else
     body = (
       <div className="trends">

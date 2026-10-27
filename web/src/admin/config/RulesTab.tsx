@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 
 import { createRule, listConfigModules, listParameters, listRules, testRule, updateRule } from '../../api/admin'
 import type { Module, Parameter, Priority, Rule, RuleTestResult } from '../../api/types'
-import { formatEta, parseInput } from '../../format'
+import { parseInput } from '../../format'
 import { ErrorText, Loading, Notice, StatusBadge } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
 import { useScrollToTop } from '../../components/scroll'
@@ -105,7 +105,6 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
   const [action, setAction] = useState(rule?.action_text ?? '')
   const [priority, setPriority] = useState<Priority>(rule?.priority ?? 'medium')
   const [benefit, setBenefit] = useState(rule?.benefit_text ?? '')
-  const [eta, setEta] = useState(rule?.eta_expr ?? '')
   const [affects, setAffects] = useState<Set<string>>(new Set(rule?.affects_modules ?? []))
   const [sortOrder, setSortOrder] = useState(String(rule?.sort_order ?? 0))
   const [active, setActive] = useState(rule?.is_active ?? true)
@@ -137,7 +136,6 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
         await testRule(companyId, {
           condition_expr: condition,
           probability_expr: probability || null,
-          eta_expr: eta.trim() || null,
           values,
         }),
       )
@@ -155,7 +153,6 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
       action_text: action.trim(),
       priority,
       benefit_text: benefit.trim(),
-      eta_expr: eta.trim() || null,
       affects_modules: [...affects],
       sort_order: Number(sortOrder),
     }
@@ -214,18 +211,6 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
         />
       </label>
       <label className="field form-grid__wide">
-        <span>ETA in hours (optional: when the problem is expected; 0 = now)</span>
-        <input
-          className="formula-input"
-          value={eta}
-          onChange={(e) => {
-            setEta(e.target.value)
-            setTest(null)
-          }}
-          placeholder="e.g. (condsp * 1.1 - cond) / rate('cond', 6)"
-        />
-      </label>
-      <label className="field form-grid__wide">
         <span>Recommended action</span>
         <textarea rows={2} value={action} onChange={(e) => setAction(e.target.value)} />
       </label>
@@ -281,7 +266,7 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
         {test && (
           <p className={test.ok ? 'ok-message' : 'form-error'}>
             {test.ok
-              ? `${test.matched ? 'Matches' : 'Does not match'}${test.probability !== null ? ` · probability ${Math.round(test.probability)}%` : ''}${test.eta_hours != null ? ` · ETA ${formatEta(test.eta_hours)}` : ''} (uses ${test.references.join(', ') || 'nothing'})`
+              ? `${test.matched ? 'Matches' : 'Does not match'}${test.probability !== null ? ` · probability ${Math.round(test.probability)}%` : ''} (uses ${test.references.join(', ') || 'nothing'})`
               : test.error ?? 'Not enough data to evaluate (a referenced value is missing).'}
           </p>
         )}

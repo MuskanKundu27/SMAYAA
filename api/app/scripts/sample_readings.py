@@ -47,9 +47,12 @@ def generate_inputs(
     hours: float,
     rng: random.Random,
     every: float = 1.0,
+    drift: dict[str, float] | None = None,
 ) -> dict[str, float | None]:
-    """One set of input values `hours` after the start of the series."""
+    """One set of input values `hours` after the start of the series. `drift` holds each
+    parameter's slowly wandering offset, so values change smoothly from hour to hour."""
     values: dict[str, float | None] = {}
+    drift = {} if drift is None else drift
     for key in (k for k, p in params.items() if p.kind == "input"):
         start = base.get(key)
         if key in SWITCHES:
@@ -58,7 +61,8 @@ def generate_inputs(
             values[key] = None
         else:  # a slow daily wave plus a little noise around the starting value
             phase = sum(map(ord, key)) % 7  # each parameter peaks at its own time of day
-            wave = 0.03 * _wave(hours, 24, phase) + 0.015 * rng.gauss(0, 1)
+            drift[key] = 0.85 * drift.get(key, 0.0) + 0.15 * rng.gauss(0, 1)
+            wave = 0.03 * _wave(hours, 24, phase) + 0.03 * drift[key]
             values[key] = start * (1 + wave)
 
     def has(*keys: str) -> bool:
@@ -67,7 +71,8 @@ def generate_inputs(
     # Thermal: wet-bulb swings ±2 °C a day; supply and return follow it.
     if has("wbt", "ts", "tr") and base.get("wbt") is not None:
         wbt = float(base["wbt"] or 0) + 2.0 * _wave(hours, 24, -math.pi / 2) + 0.2 * rng.gauss(0, 1)
-        approach = float((base["ts"] or 0) - (base["wbt"] or 0)) + 0.3 * rng.gauss(0, 1)
+        drift["_approach"] = 0.85 * drift.get("_approach", 0.0) + 0.15 * rng.gauss(0, 1)
+        approach = float((base["ts"] or 0) - (base["wbt"] or 0)) + 0.6 * drift["_approach"]
         cooling_range = float((base["tr"] or 0) - (base["ts"] or 0)) * (1 + 0.04 * _wave(hours, 24))
         values["wbt"], values["ts"] = wbt, wbt + approach
         values["tr"] = wbt + approach + cooling_range
@@ -96,7 +101,7 @@ def generate_inputs(
         values["muflow"] = evaporation + float(values["bdflow"] or 0) + 0.2
         if has("mucond", "cond"):
             coc = float(values["muflow"] or 0) / (float(values["bdflow"] or 0) + 0.2)
-            values["cond"] = float(values["mucond"] or 0) * coc * (1 + 0.02 * rng.gauss(0, 1))
+            values["cond"] = float(values["mucond"] or 0) * coc * (1 + 0.005 * rng.gauss(0, 1))
 
     return {
         k: (round(v, params[k].precision) if isinstance(v, float) else v) for k, v in values.items()
@@ -131,9 +136,10 @@ def fill(
     start = now - timedelta(days=days)
     steps = int(days * 24 / every)
     points: list[tuple[datetime, dict[str, Any]]] = []
+    drift: dict[str, float] = {}
     for i in range(steps):
         t = start + timedelta(hours=i * every)
-        inputs = generate_inputs(base, params, i * every, rng, every)
+        inputs = generate_inputs(base, params, i * every, rng, every, drift)
         recent = [p for p in points if p[0] >= t - timedelta(hours=lookback)] if lookback else []
         history = History(now=t, points=recent) if lookback else None
         calculated = calculate(inputs, formulas, baseline, history, settings)

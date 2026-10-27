@@ -320,7 +320,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
 - **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. Each rule also has a **`priority`** (`high` / `medium` / `low`: the severity in the problems table and the priority in recommended actions), a **`benefit_text`** (expected benefit of the action) and an optional **`eta_expr`**: hours until the problem is expected, e.g. `(condsp * 1.1 - cond) / rate('cond', 6)`. ETA result 0 = now; a negative result or no result = no estimate; an empty string removes it. `eta_expr` is validated like the other expressions and changing it bumps `rule.version`. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used) and returns `eta_hours` when an `eta_expr` is sent.
 - **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
-- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart` (optional `ranges`: time-range buttons in hours, e.g. `[6, 24, 168, 720]`; `combine: true` draws all series in one chart, first on the left axis), `predicted_problems` (optional `style: "table"`: severity, probability and ETA columns), `recommended_actions` (`rules`: action, priority, expected benefit of matched rules), `kpi_cards` (`items` of `{param, target, status_from, caption, delta, delta_good, range_caption}`; `target` = `"limits"` for the good range or a parameter key for "≤ its value"; `style: "benefit"` for the benefit cards), `system_diagram` (`makeup`, `blowdown`, `sidestream` keys + `chemistry` list), `quick_links` (`items` of `{label, target}`, target `limits`, `operator-profiles` or `module:<key>`), `alert_list`, `inputs_summary`, `text_note`. **Every widget** may set `width`: `full` (default), `half`, `third` or `quarter` (narrow screens always use the full width). Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart` (optional `ranges`: time-range buttons in hours, e.g. `[6, 24, 168, 720]`; `combine: true` draws all series in one chart, first on the left axis), `predicted_problems` (optional `style: "table"`: severity, probability and ETA columns), `recommended_actions` (`rules`: action, priority, expected benefit of matched rules), `kpi_cards` (`items` of `{param, target, status_from, caption, delta, delta_good, range_caption}`; `target` = `"limits"` for the good range or a parameter key for "≤ its value"; `style: "benefit"` for the benefit cards; without limits the card gets status `na` and, for `target: "limits"`, the caption "No target set"), `system_diagram` (`makeup`, `blowdown`, `sidestream` keys + `chemistry` list), `quick_links` (`items` of `{label, target}`, target `limits`, `operator-profiles` or `module:<key>`), `alert_list`, `inputs_summary`, `text_note`. **Every widget** may set `width`: `full` (default), `half`, `third` or `quarter` (narrow screens always use the full width). Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
 - **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
@@ -331,9 +331,9 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   - **Calculated (17): exactly the engineering note's KPIs (3.2 and 4.2) plus LSI.** LSI = pH − pHs, pHs = (9.3 + A + B) − (C + D), A = (log10 TDS − 1)/10, B = 34 − 13.12 log10(return temperature + 273.15), C = log10 total hardness − 0.4, D = log10 alkalinity (engineers' sheet, confirmed by the owner); default limits −0.5 / 0 / 1.5 / 2.5 (good 0 to 1.5; 2.5 = common upper ceiling, e.g. California Title 24 cycles calculator); thermal (3.2): range, approach, heat load, expected approach (**demo model**; the note names the inputs WBT, heat load, flow, fan speed and clean baseline but gives no formula: clean baseline scaled for process load or heat load vs design, fan speed, flow vs design, wet-bulb vs design), approach residual (actual − expected), fan response (6 h; Δfan speed, else Δfan power), specific fan energy (fan kW per MW heat load); filtration (4.2): ΔP, removal efficiency, ΔP rate of change (per day, over 24 h), solids load proxy, cleaning interval (time between the last two cleanings), ΔP recovery, water per cleaning, m³ treated per cleaning (7 days); plus cleanings (7 days), the note's 4.1 "cleaning count". No extra KPIs (owner decision).
   - **Plant settings (defaults):** clean baseline approach 4 °C, design heat load 9304 kW, design flow 1000 m³/h, design wet-bulb 26 °C (expected approach), expected post-clean ΔP 0.2 bar (FLT-P05), minimum water per cleaning 2.5 m³ (FLT-P06).
   - **CoC & Blowdown (added 2026-10-27):**
-    - Inputs: ORP (chemistry, limits 500 / 600 / 800 / 900 mV from the screen design; chlorine programmes often run 400–600 mV, so set per site), make-up conductivity, make-up flow, blowdown flow, chemical dosing flow (group `coc`) and the blowdown valve switch (group `indication`).
+    - Inputs: ORP (chemistry, **no default limits**: the manager sets the plant's range; chlorine programmes often run 400–600 mV), make-up conductivity, make-up flow, blowdown flow, chemical dosing flow (group `coc`) and the blowdown valve switch (group `indication`).
     - Calculated (group `coc`):
-      - `coc` = cond / mucond, limits 4 / 5 / 6 / 7
+      - `coc` = cond / mucond (**no default limits**; the manager sets the plant's CoC range)
       - `cocflow` = muflow / (bdflow + drift)
       - `cocmis` = \|coc − cocflow\| / coc × 100, limits 0 / 0 / 10 / 20
       - `evap` = heat × 3600 / (h_fg × 1000), with h_fg = 2501 − 2.361 × mean water temperature (water-side method)
@@ -346,17 +346,18 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
       - `costsaved` = watersaved × water cost (₹)
       - `chemvt`: chemical use vs target, %
     - Settings: `target_coc` 5, `drift_loss` 0.2 m³/h, `baseline_blowdown` 4.7 and `baseline_makeup` 21.5 m³/h (typed by the manager), `water_cost` 45 ₹/m³, `chem_target` 2.6 L/h.
-    - Rules: COC-P01..P09, with priority, benefit and ETA where meaningful:
+    - Rules: COC-P01..P09, with priority and benefit (no ETA: the owner removed it from the screen; `eta_expr` stays available in the API):
       - P01 excessive blowdown
-      - P02 rising conductivity (ETA to 110 % of the setpoint)
-      - P03 scaling risk (ETA to LSI 2.5)
+      - P02 rising conductivity
+      - P03 scaling risk
       - P04 blowdown valve leakage
       - P05 conductivity rising with the valve open
       - P06 CoC mismatch
       - P07 opportunity to raise CoC
       - P08 corrosion / biological control risk
       - P09 chemical overdosing
-    - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts with 6H / 24H / 7D / 30D, problems table, recommended actions, quick actions.
+    - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts (two per row) with 6H / 24H / 7D / 30D, problems table (issue, severity, probability), recommended actions, quick actions.
+    - **KPI targets come only from the plant's limits** (owner decision): every card uses `"target": "limits"`. A card whose parameter has no limits shows "No target set" and no status colour, until the manager sets a range on the Limits page.
   - **Rules (13 + 9):** FLT-P01..P07 and TH-P01..P06 as named in the note (priority `medium`, no benefit text yet), plus COC-P01..P09. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
   - **Modules (4; CoC & Blowdown described above):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, Make-up, blowdown & dosing, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.
   - 20 treatments (flagged `needs_review`) and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
@@ -439,7 +440,15 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **After a save:** the typed text is kept until the refreshed screen arrives (no flicker), and errors are shown on the tile.
   - The header shows "Last updated by X at HH:MM".
 - **Notification bell** (`notifications/NotificationBell.tsx`): in the top bar on every page for users with `alerts.view` and a selected plant. The badge shows how many alerts + predicted problems there are; the bell is red when any alert is high, amber otherwise. It **blinks while there is something the user hasn't opened yet** (`seen.ts`: ids like `alert:hard:warn` and `problem:TH-P02`, remembered per user and plant in localStorage; an alert that gets worse counts as new). Clicking opens a panel with each alert (limits, affected modules, cause/treatment/precautions, review note) and each predicted problem (probability, action, demo-heuristic note), plus who updated last. Closes on outside click or Escape. Respects reduced-motion settings.
-- **Dashboard widgets** (`modules/dashboardWidgets.tsx`): `kpi_cards`, `recommended_actions`, `quick_links` (navigates within the app; links to pages or modules the user cannot open are hidden) and `system_diagram` (inline SVG). `ModulePage` lays widgets out on a 12-column grid (`.module-grid`) using each widget's `width`. `trend_chart` shows time-range buttons when `ranges` is set and fetches other ranges from the trend endpoint (`ModuleLocationContext` gives widgets the plant and module). Combined charts draw the first series' good range as a band. `predicted_problems` with `style: "table"` draws Issue / Severity / Probability / ETA (`format.formatEta`: Now, hours, days).
+- **Dashboard widgets** (`modules/dashboardWidgets.tsx`): `kpi_cards`, `recommended_actions`, `quick_links` (navigates within the app; links to pages or modules the user cannot open are hidden) and `system_diagram` (inline SVG). `ModulePage` lays widgets out on a 12-column grid (`.module-grid`) using each widget's `width`. `trend_chart` shows time-range buttons when `ranges` is set and fetches other ranges from the trend endpoint (`ModuleLocationContext` gives widgets the plant and module). All trend charts are drawn by **`modules/charts.tsx` (`LineChart`)**:
+  - smooth lines (quadratic curves through midpoints, so no overshoot), with more than 120 points averaged into buckets
+  - a soft fill under the first series and grid lines with values (left axis = first series, right axis = the others)
+  - three time labels: times for ≤ 36 h, dates for longer ranges
+  - the first series' good range as a dashed band
+  - a hover tooltip with every series' value at that time
+  - a legend with the newest stored value
+
+  `predicted_problems` with `style: "table"` draws Issue / Severity / Probability (no ETA column).
 - **On/off switches:** an `input_group` widget may list `switches` (keys of on/off inputs, 1 = on, 0 = off). Those tiles draw as switches instead of number boxes; clicking saves the new value immediately (`ModuleEditing.setValue`).
 - **Management screens** (`admin/`), one per fixed menu entry; `App.tsx` maps each path in `MENU` to its page (`PAGES`):
   - **Users:** list in scope; create form offers only the roles from the caller's `users.manage:<role>` permissions (plant for plant roles; company for a platform admin creating a company admin); deactivate with confirmation, showing the API's warnings (e.g. "plant has no manager").
@@ -632,6 +641,7 @@ cd /opt/smayaa/app/api && sudo -u smayaa /opt/smayaa/venv/bin/python -m app.scri
 ```
 - Adds one reading every `--every` hours for the last `--days` days, saved by the plant's manager (or `--user <username>`), with `source = manual`.
 - Values start from the latest reading (or the sample values) and move realistically:
+  - each value drifts smoothly (a slowly wandering offset, not random jumps every hour) around a daily wave
   - daily wet-bulb swing
   - filter ΔP rising between backwashes every 36 h
   - make-up = evaporation + blowdown + drift

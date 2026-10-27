@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.engine.calculation import RuleContext, calculate, evaluate_rule, parse_rule
-from app.engine.status import Limits, Status
+from app.engine.status import Status
 from app.models import OperatorProfile, Reading
 from app.templates.default import DEFAULT_TEMPLATE as T
 from tests.helpers import Tenant, login, make_tenant, make_user, with_template
@@ -87,14 +87,13 @@ def test_high_and_low_helpers_follow_the_status_direction() -> None:
     assert run("high('c') or low('c')") is False
 
 
-def test_coc_rules_reference_known_parameters_and_eta_expressions_parse() -> None:
-    keys = {p.key for p in T.parameters}
+def test_coc_rules_have_a_priority_and_targets_are_left_to_the_manager() -> None:
     for rule in T.rules:
-        if rule.eta:
-            assert parse_rule(rule.eta).references <= keys, rule.code
         assert rule.priority in ("high", "medium", "low"), rule.code
-    limits = {p.key: Limits(*p.limits) for p in T.parameters if p.limits}
-    assert limits["coc"] == Limits(4, 5, 6, 7)
+        assert rule.eta is None, rule.code  # ETA is not shown (owner decision)
+    # CoC and ORP ranges are set per plant by the manager, not shipped as defaults.
+    limits = {p.key: p.limits for p in T.parameters}
+    assert limits["coc"] is None and limits["orp"] is None
 
 
 # --- Module screen -----------------------------------------------------------------------------
@@ -111,17 +110,17 @@ def test_coc_module_screen_has_every_piece(client: TestClient, acme: Tenant) -> 
     ]  # fmt: skip
 
     cards = {c["tile"]["key"]: c for c in view["widgets"][0]["cards"]}
-    assert (cards["coc"]["target_min"], cards["coc"]["target_max"]) == (5.0, 6.0)  # good range
-    assert cards["bdflow"]["target_max"] == pytest.approx(3.2625, abs=1e-3)  # required BD
-    assert cards["bdflow"]["status"] == "good"  # coloured by blowdown vs required (4 %)
-    assert cards["cond"]["target_max"] == pytest.approx(2400.0)  # setpoint
+    # Targets are the plant's limits: conductivity has default limits, CoC has none yet.
+    assert (cards["cond"]["target_min"], cards["cond"]["target_max"]) == (1200.0, 2800.0)
+    assert cards["cond"]["status"] == "good"
+    assert cards["coc"]["target_min"] is None and cards["coc"]["status"] == "na"
     assert cards["costsaved"]["delta"] == pytest.approx(18.6, abs=0.1)  # % less make-up
     assert cards["costsaved"]["caption"] == "vs baseline"
 
     benefits = widget(view, "kpi_cards", "Customer Benefits Today")
     assert benefits["style"] == "benefit"
     in_range = {c["tile"]["key"]: c["in_range"] for c in benefits["cards"]}
-    assert in_range["coc"] is True and in_range["orp"] is True
+    assert in_range["coc"] is None  # no target set yet
 
     diagram = widget(view, "system_diagram")
     assert diagram["named"]["makeup"]["value"] == 17.5
@@ -137,9 +136,7 @@ def test_coc_module_screen_has_every_piece(client: TestClient, acme: Tenant) -> 
     assert links[0] == {"label": "Adjust blowdown setpoint", "target": "limits"}
 
 
-def test_excessive_blowdown_shows_priority_benefit_and_eta(
-    client: TestClient, acme: Tenant
-) -> None:
+def test_excessive_blowdown_shows_priority_and_benefit(client: TestClient, acme: Tenant) -> None:
     save(client, acme, {**SAMPLE_INPUTS, "bdflow": 5.0})  # 53 % above the required 3.26
     view = coc_view(client, acme)
 
@@ -147,18 +144,17 @@ def test_excessive_blowdown_shows_priority_benefit_and_eta(
     assert problems["style"] == "table"
     excessive = next(p for p in problems["problems"] if p["code"] == "COC-P01")
     assert excessive["priority"] == "high"
-    assert excessive["eta_hours"] == 0  # happening now
+    assert excessive["eta_hours"] is None  # no ETA in the template
     assert excessive["benefit"] == "Maintain optimal CoC · save water"
 
     actions = widget(view, "recommended_actions")["problems"]
     assert "COC-P01" in [a["code"] for a in actions]
 
 
-def test_rising_conductivity_estimates_hours_to_the_alarm_level(
+def test_rising_conductivity_is_predicted_from_the_trend(
     client: TestClient, acme: Tenant, owner_db: Session
 ) -> None:
-    # 4 hours ago conductivity was 2300; now 2420 → rising 30 µS/cm per hour. The alarm level
-    # is 110 % of the 2400 setpoint = 2640, reached in (2640 - 2420) / 30 ≈ 7.3 hours.
+    # 4 hours ago conductivity was 2300; now 2420: rising, just above the 2400 setpoint.
     owner_db.add(
         Reading(
             company_id=acme.company_id, plant_id=acme.plant_a.id,
@@ -171,8 +167,7 @@ def test_rising_conductivity_estimates_hours_to_the_alarm_level(
     save(client, acme, {**SAMPLE_INPUTS, "cond": 2420})
 
     problems = widget(coc_view(client, acme), "predicted_problems")["problems"]
-    rising = next(p for p in problems if p["code"] == "COC-P02")
-    assert rising["eta_hours"] == pytest.approx(7.3, abs=0.2)
+    assert "COC-P02" in [p["code"] for p in problems]
 
 
 def test_missing_makeup_conductivity_degrades_to_insufficient_data(
@@ -274,3 +269,17 @@ def test_new_company_gets_the_coc_settings(owner_db: Session) -> None:
     with_template(owner_db, tenant.company)
     defaults = tenant.company.settings["plant_setting_defaults"]
     assert defaults["target_coc"] == 5.0 and defaults["water_cost"] == 45.0
+
+
+def test_kpi_card_targets_follow_the_managers_limits(client: TestClient, acme: Tenant) -> None:
+    save(client, acme, SAMPLE_INPUTS)
+    headers = login(client, "acme-manager")
+    limits = {"parameter_key": "coc", "warn_min": 3, "good_min": 4, "good_max": 6, "warn_max": 7}
+    response = client.put(f"{base(acme)}/limits", json={"items": [limits]}, headers=headers)
+    assert response.status_code == 200, response.text
+
+    view = coc_view(client, acme)
+    coc = next(c for c in view["widgets"][0]["cards"] if c["tile"]["key"] == "coc")
+    assert (coc["target_min"], coc["target_max"], coc["status"]) == (4.0, 6.0, "good")
+    benefits = widget(view, "kpi_cards", "Customer Benefits Today")
+    assert next(c for c in benefits["cards"] if c["tile"]["key"] == "coc")["in_range"] is True

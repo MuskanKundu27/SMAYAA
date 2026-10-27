@@ -90,9 +90,9 @@ PARAMETERS = [
     P("alk", "Alkalinity", "ppm", "chemistry", 300, (100, 150, 350, 450), precision=0),
     P("sio2", "Silica", "ppm", "chemistry", 95, (0, 0, 120, 150), precision=0),
     P("mic", "Microbial count", "CFU/mL", "chemistry", 600, (0, 0, 1000, 5000), precision=0),
-    # ORP target range from the CoC & Blowdown design (600-800 mV). Chlorine programmes often
-    # run 400-600 mV: set per site with the treatment supplier.
-    P("orp", "ORP", "mV", "chemistry", 650, (500, 600, 800, 900), precision=0),
+    # ORP: no default limits; the manager sets the plant's range with the treatment supplier
+    # (chlorine programmes often run 400-600 mV).
+    P("orp", "ORP", "mV", "chemistry", 650, precision=0),
     # Make-up, blowdown and dosing (Instrument Index: AIT-EC-MU, FT-MU, FT-BD, CHEM-FB)
     P("mucond", "Make-up conductivity", "µS/cm", "coc", 480, precision=0),
     P("muflow", "Make-up flow", "m³/h", "coc", 17.5, precision=1),
@@ -179,8 +179,8 @@ PARAMETERS = [
       formula="total('ssflow', 168) / events('clean', 168)", precision=0),
     # Calculated: CoC & Blowdown (engineering workbook "CoC & Blowdown" sheet and the Cause &
     # Effect Matrix KPI library). Targets and baselines are plant settings.
-    P("coc", "Cycles of concentration", "", "coc", limits=(4, 5, 6, 7),
-      formula="cond / mucond", precision=1),
+    # No default limits: the manager sets the plant's CoC range on the Limits page.
+    P("coc", "Cycles of concentration", "", "coc", formula="cond / mucond", precision=1),
     # Flow-based CoC includes drift (KPI-17: "flow CoC should include evaporation/drift").
     P("cocflow", "CoC by flow", "", "coc", formula="muflow / (bdflow + setting('drift_loss'))",
       precision=1),
@@ -386,32 +386,29 @@ RULES = [
       "min(95, 30 + sev('fan'))",
       "Look for airflow restriction, hydraulic inefficiency or fouling.", ("thermal",)),
     # --- CoC & Blowdown (Cause & Effect Matrix COC-01..03, WB-03, WB-04, SC-01, BIO-01/02) ---
-    # ETA = hours until the problem is expected (0 = now); negative or no result = no estimate.
     R("COC-P01", "Excessive blowdown",
       "high('bddev')",
       "min(95, 40 + sev('bddev') + sev('coc'))",
       "Adjust blowdown to maintain CoC: reduce towards the required rate and check the"
       " conductivity controller setpoint.", ("coc",), priority="high",
-      benefit="Maintain optimal CoC · save water", eta="0"),
+      benefit="Maintain optimal CoC · save water"),
     R("COC-P02", "Rising conductivity",
       f"high('condvsp') or (coalesce({COND_RATE}, 0) > 0 and condvsp > -5)",
       f"min(95, 30 + sev('condvsp') + if_else(coalesce({COND_RATE}, 0) > 0, 25, 0))",
       "Review the conductivity setpoint; verify the blowdown valve and meter and start a"
       " controlled blowdown.", ("coc",), priority="high",
-      benefit="Prevent scaling · protect assets",
-      eta=f"if_else(cond >= condsp * 1.1, 0, (condsp * 1.1 - cond) / {COND_RATE})"),
+      benefit="Prevent scaling · protect assets"),
     R("COC-P03", "Scaling risk increasing",
       "(high('lsi') or coalesce(rate('lsi', 24), 0) * 24 > 0.1)"
       " and (high('coc') or high('hard') or high('alk') or high('ph'))",
       "min(95, 25 + sev('lsi') + 10 * count_off(['coc', 'hard', 'alk', 'ph']))",
       "Lower CoC (increase blowdown); verify scale-inhibitor and acid dosing.",
-      ("coc", "thermal"), priority="high", benefit="Protect heat transfer · avoid scale",
-      eta="if_else(lsi >= 2.5, 0, (2.5 - lsi) / rate('lsi', 24))"),
+      ("coc", "thermal"), priority="high", benefit="Protect heat transfer · avoid scale"),
     R("COC-P04", "Blowdown valve leakage",
       "coalesce(bdvalve, 1) < 0.5 and bdflow > 0.1",
       "min(95, 45 + min(40, 10 * bdflow))",
       "Inspect the blowdown valve and piping; repair a passing valve or closed bypass.",
-      ("coc",), priority="medium", benefit="Prevent water loss · improve efficiency", eta="0"),
+      ("coc",), priority="medium", benefit="Prevent water loss · improve efficiency"),
     R("COC-P05", "Conductivity rising with blowdown valve open",
       f"coalesce(bdvalve, 0) >= 0.5 and coalesce({COND_RATE}, 0) > 0 and condvsp > 0",
       "min(95, 35 + sev('condvsp'))",
@@ -443,8 +440,8 @@ RULES = [
 FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
-# 6H / 24H / 7D / 30D buttons; four charts side by side.
-COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
+# 6H / 24H / 7D / 30D buttons; two charts per row so axes stay readable.
+COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "half"}
 
 MODULES = [
     TemplateModule(
@@ -525,13 +522,13 @@ MODULES = [
                 "type": "kpi_cards",
                 "items": [
                     {"param": "coc", "target": "limits"},
-                    {"param": "bdflow", "target": "bdreq", "status_from": "bddev"},
-                    {"param": "cond", "target": "condsp", "status_from": "condvsp"},
+                    {"param": "bdflow", "target": "limits"},
+                    {"param": "cond", "target": "limits"},
                     {"param": "ph", "target": "limits"},
                     {"param": "orp", "target": "limits"},
                     {"param": "costsaved", "caption": "vs baseline", "delta": "mulower"},
-                    {"param": "chemdose", "caption": "vs target", "delta": "chemvt",
-                     "delta_good": "down"},
+                    {"param": "chemdose", "target": "limits", "caption": "vs target",
+                     "delta": "chemvt", "delta_good": "down"},
                 ],
             },
             {

@@ -205,11 +205,16 @@ def _kpi_card(item: dict[str, Any], state: PlantState) -> KpiCard:
         target_max = state.values.get(target)
     status_key = item.get("status_from") or key
     status = state.statuses.get(status_key)
-    level = status.level if status and status_key in state.params else "na"
+    # Without limits there is no target, so no status colour either ("good" would mislead).
+    has_limits = state.limits.get(status_key) is not None
+    level = status.level if status and status_key in state.params and has_limits else "na"
     delta_key = item.get("delta")
+    caption = item.get("caption", "")
+    if target == "limits" and tile.limits is None and not caption and tile.value is not None:
+        caption = "No target set"  # the manager sets the plant's range on the Limits page
     return KpiCard(
         tile=tile,
-        caption=item.get("caption", ""),
+        caption=caption,
         target_min=target_min,
         target_max=target_max,
         status=level,

@@ -23,14 +23,6 @@ export function formatDateTime(iso: string): string {
   })
 }
 
-/** Hours until a predicted problem: "Now", "3 h", "2 days"; null = no estimate. */
-export function formatEta(hours: number | null): string {
-  if (hours === null) return '—'
-  if (hours < 0.5) return 'Now'
-  if (hours < 48) return `${Math.round(hours)} h`
-  return `${Math.round(hours / 24)} days`
-}
-
 /** A % change with an arrow, e.g. "↑ 28%" or "↓ 12%". */
 export function formatDelta(delta: number): string {
   const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→'

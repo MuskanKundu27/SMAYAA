@@ -645,6 +645,14 @@ The design asks for many screen pieces we did not have. We could have built one 
 
 **Later the same day:** we added a small command, `sample_readings`, that fills a demo plant with a week of realistic readings, so the trend charts have something to show. The numbers are made to fit together the way a real plant's do: make-up water equals evaporation + blowdown + drift, and conductivity follows the cycles of concentration. If they didn't, the "CoC mismatch" problem would fire all the time. The command leaves a note in the audit log, so an admin can always see that the history was imported.
 
+**After the owner's review:**
+- Targets on the cards now come **only from the limits the manager sets**. Before, one card showed a target worked out from a formula, which confused people. Cards with no limits say "No target set".
+- The ETA column was removed.
+- The charts were redrawn: smooth lines, grid lines with values, a shaded good range and a tooltip when you hover. They now sit two per row so the numbers are readable.
+- The tower picture was redrawn with clear coloured pipes and larger value badges.
+
+Lesson: when two numbers on screen look like targets but come from different places, users lose trust. Show one source of truth.
+
 ---
 
 ## Glossary
