@@ -356,7 +356,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
       - P07 opportunity to raise CoC
       - P08 corrosion / biological control risk
       - P09 chemical overdosing
-    - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts (two per row) with 6H / 24H / 7D / 30D, problems table (issue, severity, probability), recommended actions, quick actions.
+    - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts (four per row) with 6H / 24H / 7D / 30D, problems table (issue, severity, probability), recommended actions, quick actions.
     - **KPI targets come only from the plant's limits** (owner decision): every card uses `"target": "limits"`. A card whose parameter has no limits shows "No target set" and no status colour, until the manager sets a range on the Limits page.
   - **Rules (13 + 9):** FLT-P01..P07 and TH-P01..P06 as named in the note (priority `medium`, no benefit text yet), plus COC-P01..P09. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
   - **Modules (4; CoC & Blowdown described above):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, Make-up, blowdown & dosing, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.

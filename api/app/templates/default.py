@@ -440,8 +440,8 @@ RULES = [
 FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
-# 6H / 24H / 7D / 30D buttons; two charts per row so axes stay readable.
-COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "half"}
+# 6H / 24H / 7D / 30D buttons; four charts side by side.
+COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
 
 MODULES = [
     TemplateModule(

@@ -1329,7 +1329,7 @@ h2 {
 }
 
 .chart__tick {
-  font-size: 10px;
+  font-size: 13px;
   fill: var(--muted);
 }
 
