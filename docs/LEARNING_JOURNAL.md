@@ -643,6 +643,8 @@ The design asks for many screen pieces we did not have. We could have built one 
 - Keep numbers that customers may want to change (targets, costs, limits) as data, not code.
 - Check the screen in a real browser: tests proved the numbers were right, but a screenshot showed a chart overflowing its card.
 
+**Later the same day:** we added a small command, `sample_readings`, that fills a demo plant with a week of realistic readings, so the trend charts have something to show. The numbers are made to fit together the way a real plant's do: make-up water equals evaporation + blowdown + drift, and conductivity follows the cycles of concentration. If they didn't, the "CoC mismatch" problem would fire all the time. The command leaves a note in the audit log, so an admin can always see that the history was imported.
+
 ---
 
 ## Glossary
