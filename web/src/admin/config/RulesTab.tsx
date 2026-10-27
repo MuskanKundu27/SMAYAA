@@ -2,8 +2,8 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 
 import { createRule, listConfigModules, listParameters, listRules, testRule, updateRule } from '../../api/admin'
-import type { Module, Parameter, Rule, RuleTestResult } from '../../api/types'
-import { parseInput } from '../../format'
+import type { Module, Parameter, Priority, Rule, RuleTestResult } from '../../api/types'
+import { formatEta, parseInput } from '../../format'
 import { ErrorText, Loading, Notice, StatusBadge } from '../ui'
 import { errorMessage, useLoad } from '../useLoad'
 import { useScrollToTop } from '../../components/scroll'
@@ -50,6 +50,7 @@ export function RulesTab({ companyId }: { companyId: string }) {
               <th>Code</th>
               <th>Title</th>
               <th>Condition</th>
+              <th>Priority</th>
               <th>Modules</th>
               <th>Status</th>
               <th />
@@ -65,6 +66,7 @@ export function RulesTab({ companyId }: { companyId: string }) {
                 <td className="cell-text">
                   <code>{r.condition_expr}</code>
                 </td>
+                <td>{r.priority}</td>
                 <td>{r.affects_modules.join(', ') || '–'}</td>
                 <td>
                   <StatusBadge active={r.is_active} />
@@ -101,6 +103,9 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
   const [condition, setCondition] = useState(rule?.condition_expr ?? '')
   const [probability, setProbability] = useState(rule?.probability_expr ?? '')
   const [action, setAction] = useState(rule?.action_text ?? '')
+  const [priority, setPriority] = useState<Priority>(rule?.priority ?? 'medium')
+  const [benefit, setBenefit] = useState(rule?.benefit_text ?? '')
+  const [eta, setEta] = useState(rule?.eta_expr ?? '')
   const [affects, setAffects] = useState<Set<string>>(new Set(rule?.affects_modules ?? []))
   const [sortOrder, setSortOrder] = useState(String(rule?.sort_order ?? 0))
   const [active, setActive] = useState(rule?.is_active ?? true)
@@ -128,7 +133,14 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
     }
     setError(null)
     try {
-      setTest(await testRule(companyId, { condition_expr: condition, probability_expr: probability || null, values }))
+      setTest(
+        await testRule(companyId, {
+          condition_expr: condition,
+          probability_expr: probability || null,
+          eta_expr: eta.trim() || null,
+          values,
+        }),
+      )
     } catch (err) {
       setError(errorMessage(err))
     }
@@ -141,6 +153,9 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
       condition_expr: condition.trim(),
       probability_expr: probability.trim(),
       action_text: action.trim(),
+      priority,
+      benefit_text: benefit.trim(),
+      eta_expr: eta.trim() || null,
       affects_modules: [...affects],
       sort_order: Number(sortOrder),
     }
@@ -199,8 +214,32 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
         />
       </label>
       <label className="field form-grid__wide">
+        <span>ETA in hours (optional: when the problem is expected; 0 = now)</span>
+        <input
+          className="formula-input"
+          value={eta}
+          onChange={(e) => {
+            setEta(e.target.value)
+            setTest(null)
+          }}
+          placeholder="e.g. (condsp * 1.1 - cond) / rate('cond', 6)"
+        />
+      </label>
+      <label className="field form-grid__wide">
         <span>Recommended action</span>
         <textarea rows={2} value={action} onChange={(e) => setAction(e.target.value)} />
+      </label>
+      <label className="field">
+        <span>Priority / severity</span>
+        <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
+          <option value="high">High</option>
+          <option value="medium">Medium</option>
+          <option value="low">Low</option>
+        </select>
+      </label>
+      <label className="field">
+        <span>Expected benefit</span>
+        <input value={benefit} onChange={(e) => setBenefit(e.target.value)} placeholder="e.g. Save water" />
       </label>
       <fieldset className="checks form-grid__wide">
         <legend>Modules it affects (used for alert “modules affected”)</legend>
@@ -242,7 +281,7 @@ function RuleEditor({ companyId, rule, parameters, modules, onClose, onSaved }: 
         {test && (
           <p className={test.ok ? 'ok-message' : 'form-error'}>
             {test.ok
-              ? `${test.matched ? 'Matches' : 'Does not match'}${test.probability !== null ? ` · probability ${Math.round(test.probability)}%` : ''} (uses ${test.references.join(', ') || 'nothing'})`
+              ? `${test.matched ? 'Matches' : 'Does not match'}${test.probability !== null ? ` · probability ${Math.round(test.probability)}%` : ''}${test.eta_hours != null ? ` · ETA ${formatEta(test.eta_hours)}` : ''} (uses ${test.references.join(', ') || 'nothing'})`
               : test.error ?? 'Not enough data to evaluate (a referenced value is missing).'}
           </p>
         )}

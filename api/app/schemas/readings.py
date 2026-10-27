@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.config import LimitValues
+from app.schemas.config import LimitValues, QuickLink
 
 
 class ReadingInput(BaseModel):
@@ -69,6 +69,9 @@ class PredictedProblem(BaseModel):
     probability: float | None
     action: str
     modules: list[str]
+    priority: Literal["high", "medium", "low"] = "medium"
+    benefit: str = ""
+    eta_hours: float | None = Field(default=None, description="Hours until expected, if known")
 
 
 class Tile(BaseModel):
@@ -107,6 +110,7 @@ class WidgetView(BaseModel):
 
     type: str
     title: str = ""
+    width: str = "full"
     tiles: list[Tile] | None = None
     switches: list[str] | None = Field(
         default=None, description="Tile keys shown as on/off switches (input_group)"
@@ -118,6 +122,29 @@ class WidgetView(BaseModel):
     alerts: list[Alert] | None = None
     series: list[TrendSeries] | None = None
     text: str | None = None
+    style: str | None = None
+    # trend_chart: the hours shown, the time-range choices, and whether series share one chart.
+    hours: int | None = None
+    ranges: list[int] | None = None
+    combine: bool | None = None
+    cards: list["KpiCard"] | None = None
+    links: list[QuickLink] | None = None
+    # system_diagram: tiles by role (makeup, blowdown, sidestream); chemistry is in `tiles`.
+    named: dict[str, Tile] | None = None
+
+
+class KpiCard(BaseModel):
+    tile: Tile
+    caption: str = ""
+    target_min: float | None = None
+    target_max: float | None = None
+    status: Literal["good", "warn", "bad", "na"] = "na"
+    delta: float | None = None
+    delta_good: Literal["up", "down"] = "up"
+    in_range: bool | None = Field(default=None, description="For range captions; None = no data")
+
+
+WidgetView.model_rebuild()
 
 
 class ReadingSummary(BaseModel):

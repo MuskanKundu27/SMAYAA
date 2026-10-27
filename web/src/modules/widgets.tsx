@@ -1,20 +1,46 @@
 // Widget components: one per widget type in a module layout (registered in registry.ts).
 
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import type { Alert, TrendSeries, WidgetView } from '../api/types'
+import { getModuleTrend } from '../api/plant'
+import type { Alert, PredictedProblem, TrendSeries, WidgetView } from '../api/types'
 import { TileCard } from '../components/TileCard'
-import { formatDateTime, formatValue, limitsText } from '../format'
+import { formatDateTime, formatEta, formatValue, limitsText, rangeLabel } from '../format'
+import { useModuleLocation } from './moduleContext'
 
-export type WidgetProps = { widget: WidgetView }
+/** `index` is the widget's position in the module layout. */
+export type WidgetProps = { widget: WidgetView; index: number }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({
+  title,
+  children,
+  card = false,
+  actions,
+}: {
+  title: string
+  children: ReactNode
+  /** Draw the whole widget as one card (panels such as tables and charts). */
+  card?: boolean
+  /** Controls shown at the right of the title (e.g. time-range buttons). */
+  actions?: ReactNode
+}) {
   return (
-    <section className="widget">
-      {title && <h2 className="widget__title">{title}</h2>}
+    <section className={card ? 'widget widget--card' : 'widget'}>
+      {(title || actions) && (
+        <div className="widget__head">
+          {title && <h2 className="widget__title">{title}</h2>}
+          {actions}
+        </div>
+      )}
       {children}
     </section>
   )
+}
+
+export function PriorityBadge({ priority }: { priority: PredictedProblem['priority'] }) {
+  const label = { high: 'High', medium: 'Medium', low: 'Low' }[priority]
+  return <span className={`severity severity--${priority}`}>{label}</span>
 }
 
 export function TilesWidget({ widget }: WidgetProps) {
@@ -59,15 +85,57 @@ export function InputsSummaryWidget({ widget }: WidgetProps) {
   )
 }
 
+function ProblemsTable({ problems }: { problems: PredictedProblem[] }) {
+  return (
+    <table className="data-table compact-table">
+      <thead>
+        <tr>
+          <th>Issue</th>
+          <th>Severity</th>
+          <th>Probability</th>
+          <th>ETA</th>
+        </tr>
+      </thead>
+      <tbody>
+        {problems.map((p) => (
+          <tr key={p.code}>
+            <td>
+              {p.title} <span className="muted problem__code-small">{p.code}</span>
+            </td>
+            <td>
+              <PriorityBadge priority={p.priority} />
+            </td>
+            <td className="nowrap">
+              {p.probability === null ? (
+                '—'
+              ) : (
+                <span className="prob-inline">
+                  <span className="prob-bar prob-bar--inline" aria-hidden="true">
+                    <span className="prob-bar__fill" style={{ width: `${p.probability}%` }} />
+                  </span>
+                  {p.probability}%
+                </span>
+              )}
+            </td>
+            <td className="nowrap">{formatEta(p.eta_hours)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 export function PredictedProblemsWidget({ widget }: WidgetProps) {
   const problems = widget.problems ?? []
   const insufficient = widget.insufficient_rules ?? []
+  const asTable = widget.style === 'table'
   return (
-    <Section title={widget.title || 'Predicted problems'}>
+    <Section title={widget.title || 'Predicted problems'} card={asTable}>
       {problems.length === 0 && insufficient.length === 0 && (
         <p className="ok-message">No problems predicted from the latest values.</p>
       )}
-      <ul className="problem-list">
+      {asTable && problems.length > 0 && <ProblemsTable problems={problems} />}
+      <ul className="problem-list" style={asTable ? { display: 'none' } : undefined}>
         {problems.map((p) => (
           <li key={p.code} className="problem">
             <div className="problem__head">
@@ -180,14 +248,135 @@ function TrendChart({ series }: { series: TrendSeries }) {
   )
 }
 
-export function TrendChartWidget({ widget }: WidgetProps) {
+const SERIES_COLOURS = ['var(--blue)', '#e8590c', '#2f9e44', '#7048e8']
+
+/** One or more series in one chart: the first on the left axis (with its good range as a
+ *  band), the others on the right axis. */
+function CombinedChart({ series }: { series: TrendSeries[] }) {
+  const width = 320
+  const height = 110
+  const lines = series.map((s) => ({
+    series: s,
+    points: s.points.filter((p) => p.v !== null).map((p) => ({ t: Date.parse(p.t), v: p.v as number })),
+  }))
+  const all = lines.flatMap((l) => l.points)
+  if (all.length < 2) return <p className="muted">Not enough history yet.</p>
+
+  const t0 = Math.min(...all.map((p) => p.t))
+  const t1 = Math.max(...all.map((p) => p.t))
+  const x = (t: number) => (t1 === t0 ? width / 2 : ((t - t0) / (t1 - t0)) * width)
+  const axis = (values: number[]) => {
+    const lo = Math.min(...values)
+    const hi = Math.max(...values)
+    return { lo, hi, y: (v: number) => (hi === lo ? height / 2 : height - 4 - ((v - lo) / (hi - lo)) * (height - 8)) }
+  }
+  const firstLimits = series[0].limits
+  const left = axis(
+    lines[0].points
+      .map((p) => p.v)
+      .concat(firstLimits ? [firstLimits.good_min, firstLimits.good_max] : [])
+      .concat(lines[0].points.length ? [] : [0]),
+  )
+  const rightValues = lines.slice(1).flatMap((l) => l.points.map((p) => p.v))
+  const right = rightValues.length ? axis(rightValues) : left
+
   return (
-    <Section title={widget.title || 'Trends'}>
+    <figure className="trend trend--plain">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={series.map((s) => s.label).join(' and ')}>
+        {firstLimits && (
+          <rect
+            className="trend__good"
+            x={0}
+            width={width}
+            y={left.y(firstLimits.good_max)}
+            height={Math.max(left.y(firstLimits.good_min) - left.y(firstLimits.good_max), 1)}
+          />
+        )}
+        {lines.map((line, i) => {
+          const scale = i === 0 ? left : right
+          const path = line.points.map((p) => `${x(p.t).toFixed(1)},${scale.y(p.v).toFixed(1)}`).join(' ')
+          return <polyline key={line.series.key} className="trend__series" stroke={SERIES_COLOURS[i % 4]} points={path} />
+        })}
+      </svg>
+      <div className="trend__axis muted">
+        <span>{formatDateTime(new Date(t0).toISOString())}</span>
+        <span>{formatDateTime(new Date(t1).toISOString())}</span>
+      </div>
+      <ul className="trend__legend">
+        {lines.map((line, i) => {
+          const latest = line.points[line.points.length - 1]
+          return (
+            <li key={line.series.key}>
+              <span className="trend__swatch" style={{ background: SERIES_COLOURS[i % 4] }} />
+              {line.series.label}
+              {line.series.unit && <span className="muted"> ({line.series.unit})</span>}
+              {latest && <strong> {formatValue(latest.v)}</strong>}
+            </li>
+          )
+        })}
+      </ul>
+    </figure>
+  )
+}
+
+export function TrendChartWidget({ widget, index }: WidgetProps) {
+  const { plantId, moduleKey } = useModuleLocation()
+  const initial = widget.hours ?? 24
+  const [hours, setHours] = useState(initial)
+  const [loaded, setLoaded] = useState<{ hours: number; series: TrendSeries[] } | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  // Another time range: ask the server for it (again whenever the screen reloads).
+  useEffect(() => {
+    if (hours === initial || !plantId) return
+    let cancelled = false
+    getModuleTrend(plantId, moduleKey, index, hours)
+      .then((series) => {
+        if (!cancelled) {
+          setLoaded({ hours, series })
+          setFailed(false)
+        }
+      })
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+    }
+  }, [plantId, moduleKey, index, hours, initial, widget.series])
+
+  const series = hours === initial ? (widget.series ?? []) : loaded?.hours === hours ? loaded.series : null
+  const ranges = widget.ranges ?? []
+  const buttons = ranges.length > 1 && (
+    <div className="range-buttons" role="group" aria-label="Time range">
+      {ranges.map((h) => (
+        <button
+          key={h}
+          type="button"
+          className={h === hours ? 'range-button range-button--active' : 'range-button'}
+          aria-pressed={h === hours}
+          onClick={() => setHours(h)}
+        >
+          {rangeLabel(h)}
+        </button>
+      ))}
+    </div>
+  )
+
+  let body: ReactNode
+  if (failed && hours !== initial) body = <p className="form-error">Could not load this time range.</p>
+  else if (series === null) body = <p className="muted">Loading…</p>
+  else if (widget.combine || ranges.length > 0) body = <CombinedChart series={series} />
+  else
+    body = (
       <div className="trends">
-        {(widget.series ?? []).map((s) => (
+        {series.map((s) => (
           <TrendChart key={s.key} series={s} />
         ))}
       </div>
+    )
+
+  return (
+    <Section title={widget.title || 'Trends'} card={ranges.length > 0 || Boolean(widget.combine)} actions={buttons}>
+      {body}
     </Section>
   )
 }

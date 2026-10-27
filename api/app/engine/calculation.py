@@ -105,7 +105,7 @@ def statuses_for(
 
 # --- Rule helpers ------------------------------------------------------------------------------
 
-RULE_HELPERS = ("value", "status", "off", "sev", "count_off")
+RULE_HELPERS = ("value", "status", "off", "high", "low", "sev", "count_off")
 
 
 class RuleContext:
@@ -114,6 +114,7 @@ class RuleContext:
     value('k')            the value of parameter k
     status('k')           'good', 'warn', 'bad' or 'na'
     off('k')              True when k is warn or bad
+    high('k') / low('k')  True when k is off on the high / low side
     sev('k')              20 for warn, 40 for bad, else 0 (probability points)
     count_off(['a','b'])  how many of the listed parameters are off
 
@@ -151,6 +152,12 @@ class RuleContext:
 
     def off(self, key: Value) -> Value:
         return self._is_off(key)
+
+    def high(self, key: Value) -> Value:
+        return self._is_off(key) and self._statuses[str(key)].direction == "high"
+
+    def low(self, key: Value) -> Value:
+        return self._is_off(key) and self._statuses[str(key)].direction == "low"
 
     def sev(self, key: Value) -> Value:
         level = self._level(key)

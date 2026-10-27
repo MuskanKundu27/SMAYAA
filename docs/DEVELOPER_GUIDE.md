@@ -66,7 +66,8 @@ api/                      Backend (FastAPI, Python 3.12)
     scripts/seed_dev.py   Demo data for local development
     scripts/create_platform_admin.py  Creates the first platform admin (all environments)
   migrations/versions/    0001 baseline, 0002 identity + tenancy + RLS, 0003 configuration + RLS,
-                          0004 readings + RLS, 0005 measured parameters may keep a formula
+                          0004 readings + RLS, 0005 measured parameters may keep a formula,
+                          0006 rule priority, benefit text and ETA expression
   scripts/                create_dev_db.sql, grant_app_role.sql, docker-init-db.sh
   tests/                  pytest: conftest (test DB setup), helpers (data builders), test_*.py
 web/                      Frontend (React 19 + TypeScript + Vite + react-router 7)
@@ -284,7 +285,7 @@ Pure functions, no database, so they are easy to test and reuse.
 - **`calculation.py`:**
   - `calculation_order(formulas)` sorts formulas topologically (Kahn's algorithm) and raises `CycleError` on loops.
   - `parse_formula(source)` parses a formula (math functions + time functions). `calculate(inputs, formulas, base, history=None)` computes every calculated key in that order. `base` is the reserved name for the plant's clean baseline approach. Without `history`, time functions give `None`.
-  - `RuleContext(values, statuses, history=None)` provides the rule helpers `value`, `status`, `off`, `sev` and `count_off`, plus the time functions. A missing value counts as **not off**, so no data never raises a prediction.
+  - `RuleContext(values, statuses, history=None)` provides the rule helpers `value`, `status`, `off`, `high`, `low`, `sev` and `count_off`, plus the time functions. `high('k')` / `low('k')` are true when k is off on the high / low side (e.g. `low('orp')`). A missing value counts as **not off**, so no data never raises a prediction.
   - `parse_rule` and `evaluate_rule` work like `parse` and `evaluate`, with those helpers.
 - **`history.py` (time functions):** formulas and rules can look back at the plant's earlier readings. One general mechanism, so trend KPIs are configuration, not code. `History(now, points)` holds earlier readings (oldest first, each with its stored input and calculated values); `TimeFunctions` binds the functions to a history and the current values:
 
@@ -316,22 +317,49 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   Failures return **422** with `details[0].field = "formula"` and a human-readable message.
 - **Versioning:** changing a formula increments `formula_version`. Changing an expression of a rule increments `rule.version`.
 - **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
-- **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used).
+- **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. Each rule also has a **`priority`** (`high` / `medium` / `low`: the severity in the problems table and the priority in recommended actions), a **`benefit_text`** (expected benefit of the action) and an optional **`eta_expr`**: hours until the problem is expected, e.g. `(condsp * 1.1 - cond) / rate('cond', 6)`. ETA result 0 = now; a negative result or no result = no estimate; an empty string removes it. `eta_expr` is validated like the other expressions and changing it bumps `rule.version`. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used) and returns `eta_hours` when an `eta_expr` is sent.
 - **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
-- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart`, `predicted_problems`, `alert_list`, `inputs_summary`, `text_note`. Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart` (optional `ranges`: time-range buttons in hours, e.g. `[6, 24, 168, 720]`; `combine: true` draws all series in one chart, first on the left axis), `predicted_problems` (optional `style: "table"`: severity, probability and ETA columns), `recommended_actions` (`rules`: action, priority, expected benefit of matched rules), `kpi_cards` (`items` of `{param, target, status_from, caption, delta, delta_good, range_caption}`; `target` = `"limits"` for the good range or a parameter key for "≤ its value"; `style: "benefit"` for the benefit cards), `system_diagram` (`makeup`, `blowdown`, `sidestream` keys + `chemistry` list), `quick_links` (`items` of `{label, target}`, target `limits`, `operator-profiles` or `module:<key>`), `alert_list`, `inputs_summary`, `text_note`. **Every widget** may set `width`: `full` (default), `half`, `third` or `quarter` (narrow screens always use the full width). Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
 - **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
 ### 8.6c Templates (`app/templates/default.py`)
-- The default template is plain Python data and follows the engineering note's Thermal Efficiency and Side-Stream Filtration modules:
+- The default template is plain Python data and follows the engineering note's Thermal Efficiency and Side-Stream Filtration modules, plus the **CoC & Blowdown** module (from the engineering workbook's "CoC & Blowdown" sheet and the Cause & Effect Matrix):
   - **Inputs (31):** chemistry (pH, conductivity, TDS, hardness, alkalinity, silica, microbial count); thermal (supply/return temperature, wet-bulb, circulating flow, fan power, fan speed, pump speed, pump power, pump discharge pressure, process load); side-stream filter (inlet/outlet pressure, side-stream flow, inlet/outlet turbidity, inlet/outlet TSS, cleaning/backwash status, backwash flow and time, oil-in-water, bypass valve status, side-stream pump status). Optional inputs have no limits; on/off inputs use 1 = yes.
   - **Measured or calculated (per company):** filter ΔP (default calculated `pin - pout`; measured = from a dP transmitter) and fan power (default measured from a kW meter; calculated = `sqrt(3) * fanv * fani * fanpf / 1000` from fan voltage, fan current and fan motor power factor, which ship **inactive** and are switched on automatically when fan power is set to calculated). Template fields: `TemplateParameter(measured=True, active=False)`. The super admin switches it in Configuration → Parameters → Edit → Source. "Update to latest template" keeps each company's choice.
   - **Calculated (17): exactly the engineering note's KPIs (3.2 and 4.2) plus LSI.** LSI = pH − pHs, pHs = (9.3 + A + B) − (C + D), A = (log10 TDS − 1)/10, B = 34 − 13.12 log10(return temperature + 273.15), C = log10 total hardness − 0.4, D = log10 alkalinity (engineers' sheet, confirmed by the owner); default limits −0.5 / 0 / 1.5 / 2.5 (good 0 to 1.5; 2.5 = common upper ceiling, e.g. California Title 24 cycles calculator); thermal (3.2): range, approach, heat load, expected approach (**demo model**; the note names the inputs WBT, heat load, flow, fan speed and clean baseline but gives no formula: clean baseline scaled for process load or heat load vs design, fan speed, flow vs design, wet-bulb vs design), approach residual (actual − expected), fan response (6 h; Δfan speed, else Δfan power), specific fan energy (fan kW per MW heat load); filtration (4.2): ΔP, removal efficiency, ΔP rate of change (per day, over 24 h), solids load proxy, cleaning interval (time between the last two cleanings), ΔP recovery, water per cleaning, m³ treated per cleaning (7 days); plus cleanings (7 days), the note's 4.1 "cleaning count". No extra KPIs (owner decision).
   - **Plant settings (defaults):** clean baseline approach 4 °C, design heat load 9304 kW, design flow 1000 m³/h, design wet-bulb 26 °C (expected approach), expected post-clean ΔP 0.2 bar (FLT-P05), minimum water per cleaning 2.5 m³ (FLT-P06).
-  - **Rules (13):** FLT-P01..P07 and TH-P01..P06 as named in the note. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
-  - **Modules (3):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.
+  - **CoC & Blowdown (added 2026-10-27):**
+    - Inputs: ORP (chemistry, limits 500 / 600 / 800 / 900 mV from the screen design; chlorine programmes often run 400–600 mV, so set per site), make-up conductivity, make-up flow, blowdown flow, chemical dosing flow (group `coc`) and the blowdown valve switch (group `indication`).
+    - Calculated (group `coc`):
+      - `coc` = cond / mucond, limits 4 / 5 / 6 / 7
+      - `cocflow` = muflow / (bdflow + drift)
+      - `cocmis` = \|coc − cocflow\| / coc × 100, limits 0 / 0 / 10 / 20
+      - `evap` = heat × 3600 / (h_fg × 1000), with h_fg = 2501 − 2.361 × mean water temperature (water-side method)
+      - `condsp` = mucond × target CoC
+      - `condvsp` = (cond − setpoint) / setpoint × 100, limits −100 / −100 / 5 / 10 (warning 5 % above setpoint, alarm 10 %)
+      - `bdreq` = max(0, evap / (target CoC − 1) − drift)
+      - `bddev` = (bdflow − bdreq) / bdreq × 100, limits −25 / −10 / 10 / 25
+      - `bdlower` and `mulower`: % less blowdown / make-up than the baseline
+      - `watersaved` = (baseline make-up − 24 h average make-up) × 24
+      - `costsaved` = watersaved × water cost (₹)
+      - `chemvt`: chemical use vs target, %
+    - Settings: `target_coc` 5, `drift_loss` 0.2 m³/h, `baseline_blowdown` 4.7 and `baseline_makeup` 21.5 m³/h (typed by the manager), `water_cost` 45 ₹/m³, `chem_target` 2.6 L/h.
+    - Rules: COC-P01..P09, with priority, benefit and ETA where meaningful:
+      - P01 excessive blowdown
+      - P02 rising conductivity (ETA to 110 % of the setpoint)
+      - P03 scaling risk (ETA to LSI 2.5)
+      - P04 blowdown valve leakage
+      - P05 conductivity rising with the valve open
+      - P06 CoC mismatch
+      - P07 opportunity to raise CoC
+      - P08 corrosion / biological control risk
+      - P09 chemical overdosing
+    - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts with 6H / 24H / 7D / 30D, problems table, recommended actions, quick actions.
+  - **Rules (13 + 9):** FLT-P01..P07 and TH-P01..P06 as named in the note (priority `medium`, no benefit text yet), plus COC-P01..P09. Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
+  - **Modules (4; CoC & Blowdown described above):** Input Parameters (key `water_chemistry`, data entry: Chemistry, Thermal, Side-stream filter, Make-up, blowdown & dosing, **Indication** (on/off switches for cleaning/backwash, bypass valve, side-stream pump, plus backwash time; group `indication`), Calculated values), Side-Stream Filtration and Thermal Efficiency (KPI tiles, a 7-day trend chart, inputs used, predicted problems, notes). Alerts are shown in the notification bell, not on the pages.
   - 20 treatments (flagged `needs_review`) and plant-setting defaults (`clean_baseline_approach = 4.0`, stored in `companies.settings["plant_setting_defaults"]`).
-- `services/templates.apply_template(db, company, template, actor_id, update_existing=False)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits. With **`update_existing=True`** ("update to the latest template") it also refreshes the template's own existing parameters (label, unit, group, formula with a version bump, precision, default limits), rules (title, expressions with a version bump, action, affected modules) and modules (title, layout). Items the company added itself and treatments are never touched; the change is audited.
+- `services/templates.apply_template(db, company, template, actor_id, update_existing=False)` **adds only what is missing** (by parameter key, rule code, module key, treatment parameter+direction), so it is safe to run again and keeps a company's own edits. With **`update_existing=True`** ("update to the latest template") it also refreshes the template's own existing parameters (label, unit, group, formula with a version bump, precision, default limits), rules (title, expressions with a version bump, action, priority, benefit, affected modules) and modules (title, layout). Items the company added itself and treatments are never touched; the change is audited.
 - `POST /companies` applies the default template automatically. `POST /companies/{id}/apply-template` re-applies it (adds anything missing); `?update_existing=true` updates to the latest template. The dev seed applies it to Demo Power Ltd.
 - `tests/test_template.py` checks that the template is valid on its own: references, no loops, ordered limits, rules evaluate, and widgets reference existing items.
 
@@ -366,7 +394,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   - a rule using X lists the module in `affects_modules`.
 
   Example: hardness → Water Chemistry (shown there) + Thermal (TH rules and LSI use it) + Side-Stream Filtration (the fouling rule TH-P02 lists it in `affects_modules`).
-- **Predicted problems** (`predicted_problems`): every active rule is evaluated with the rule helpers and time functions. A rule is reported as **insufficient data** instead of guessing when a value it needs right now (`Expression.required`) is missing (no data, or an inactive parameter), or when its condition can't be decided (e.g. a trend without enough history). Matches are sorted by probability (0–100, rounded), highest first. All matches are shown (no first-match logic).
+- **Predicted problems** (`predicted_problems`): every active rule is evaluated with the rule helpers and time functions. A rule is reported as **insufficient data** instead of guessing when a value it needs right now (`Expression.required`) is missing (no data, or an inactive parameter), or when its condition can't be decided (e.g. a trend without enough history). Matches are sorted by probability (0–100, rounded), highest first. All matches are shown (no first-match logic). Each match carries the rule's `priority`, `benefit` and `eta_hours` (from `eta_expr`, rounded to 0.1 h; `None` when there is no estimate).
 
 ### 8.6g Module screens for plant users (`services/plant_views.py`)
 - `GET /plants/{id}/modules` lists the company's active modules, filtered by the operator profile's `visible_modules` if one exists. Needs `modules.view`.
@@ -378,8 +406,15 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   | `value_tiles`, `inputs_summary` | tiles for listed parameters |
   | `predicted_problems` | matched problems for the listed rules + `insufficient_rules` |
   | `alert_list` | current alerts (optionally filtered by `modules`/`params`) |
-  | `trend_chart` | series of `{t, v}` from readings in the last `hours` (max 500 points) with limits |
+  | `trend_chart` | series of `{t, v}` from readings in the last `hours` (max 500 points) with limits; `hours`, `ranges`, `combine` |
+  | `predicted_problems` (table) | as above + `style`; each problem has `priority`, `benefit`, `eta_hours` |
+  | `recommended_actions` | matched problems for the listed rules (action, priority, benefit) |
+  | `kpi_cards` | `cards`: tile, caption, `target_min`/`target_max`, status (from `status_from` or the parameter), `delta`, `delta_good`, `in_range`; `style` |
+  | `system_diagram` | `named` tiles (`makeup`, `blowdown`, `sidestream`) + chemistry `tiles` |
+  | `quick_links` | `links` (label, target); the web app hides links the user can't open |
   | `text_note` | the text |
+
+  Every widget view also has `width`. **`GET /plants/{id}/modules/{key}/trend?widget=<index>&hours=<h>`** returns one trend chart's series for another of its time ranges. Only that chart's parameters and its configured `ranges`/`hours` are allowed (else 422); a non-chart index is 404; module visibility is the same as for the screen.
 
   A tile has key, label, unit, precision, kind, value, status (`good|warn|bad|na`), direction, limits, editable, and `insufficient_data` (true when the parameter is missing or inactive). This is how widgets **degrade gracefully** instead of failing.
 - `GET /plants/{id}/alerts` is for the notification bell: the latest reading's summary ("saved by X at …"), the alerts, and the matched predicted problems. Needs `alerts.view`; alerts and problems are both empty if an operator profile has `show_alerts = false`.
@@ -403,6 +438,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **After a save:** the typed text is kept until the refreshed screen arrives (no flicker), and errors are shown on the tile.
   - The header shows "Last updated by X at HH:MM".
 - **Notification bell** (`notifications/NotificationBell.tsx`): in the top bar on every page for users with `alerts.view` and a selected plant. The badge shows how many alerts + predicted problems there are; the bell is red when any alert is high, amber otherwise. It **blinks while there is something the user hasn't opened yet** (`seen.ts`: ids like `alert:hard:warn` and `problem:TH-P02`, remembered per user and plant in localStorage; an alert that gets worse counts as new). Clicking opens a panel with each alert (limits, affected modules, cause/treatment/precautions, review note) and each predicted problem (probability, action, demo-heuristic note), plus who updated last. Closes on outside click or Escape. Respects reduced-motion settings.
+- **Dashboard widgets** (`modules/dashboardWidgets.tsx`): `kpi_cards`, `recommended_actions`, `quick_links` (navigates within the app; links to pages or modules the user cannot open are hidden) and `system_diagram` (inline SVG). `ModulePage` lays widgets out on a 12-column grid (`.module-grid`) using each widget's `width`. `trend_chart` shows time-range buttons when `ranges` is set and fetches other ranges from the trend endpoint (`ModuleLocationContext` gives widgets the plant and module). Combined charts draw the first series' good range as a band. `predicted_problems` with `style: "table"` draws Issue / Severity / Probability / ETA (`format.formatEta`: Now, hours, days).
 - **On/off switches:** an `input_group` widget may list `switches` (keys of on/off inputs, 1 = on, 0 = off). Those tiles draw as switches instead of number boxes; clicking saves the new value immediately (`ModuleEditing.setValue`).
 - **Management screens** (`admin/`), one per fixed menu entry; `App.tsx` maps each path in `MENU` to its page (`PAGES`):
   - **Users:** list in scope; create form offers only the roles from the caller's `users.manage:<role>` permissions (plant for plant roles; company for a platform admin creating a company admin); deactivate with confirmation, showing the API's warnings (e.g. "plant has no manager").
@@ -410,7 +446,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
   - **Limits** (selected plant): table grouped by parameter group with the four thresholds and the source (this plant / company default); editable only when the API says `can_edit` (manager, or company admin while there is no manager, with a banner explaining it); "Use default" per row; plant settings (clean baseline approach) below.
   - **Operator profiles** (manager): per operator, "all modules" or a chosen list, may enter readings, sees alerts; save or reset to defaults.
   - **Companies** (platform admin): create with the first company admin (gets the default template), deactivate/reactivate, link to Configuration.
-  - **Configuration** (platform admin, `?company=&tab=` in the URL): Parameters & formulas (editor with live formula test on sample values, default limits, deactivate), Treatments (pick parameter + direction, needs-review flag), Rules (editor with module checkboxes and a test panel with editable input values), Modules (title, order, active, layout as validated JSON, warnings for missing references), Template (apply default; adds only what is missing).
+  - **Configuration** (platform admin, `?company=&tab=` in the URL): Parameters & formulas (editor with live formula test on sample values, default limits, deactivate), Treatments (pick parameter + direction, needs-review flag), Rules (editor with priority, expected benefit, ETA expression, module checkboxes and a test panel with editable input values), Modules (title, order, active, layout as validated JSON, warnings for missing references), Template (apply default; adds only what is missing).
   - **Audit log:** newest first, filter by company (platform) and entity, paging, changed fields per entry.
 - **Labels:** the "demo heuristics" line under predicted problems and the explanatory notes on the Filtration and Thermal screens were removed at the owner's request (2026-10-26); the probabilities are still demo heuristics (see 8.6c).
 - **Styling:** plain CSS in `src/index.css` with CSS variables (navy/blue palette; status colours good/warn/bad/na). To be aligned with the original SMAYAA demo design once the reference files are available.
@@ -439,7 +475,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | GET / PUT | `/companies/{id}/treatments` | config.manage | List / upsert by `parameter_key` + `direction` |
 | GET / POST | `/companies/{id}/rules` | config.manage | List / create |
 | PATCH | `/companies/{id}/rules/{code}` | config.manage | Update (version +1 when an expression changes) |
-| POST | `/companies/{id}/rules/test` | config.manage | `{condition_expr, probability_expr?, values, base?}` → `{ok, matched, probability, references, error}` |
+| POST | `/companies/{id}/rules/test` | config.manage | `{condition_expr, probability_expr?, eta_expr?, values, base?}` → `{ok, matched, probability, eta_hours, references, error}` |
 | GET / POST | `/companies/{id}/modules` | config.manage | List / create (layout validated; `warnings` for missing references) |
 | PATCH | `/companies/{id}/modules/{key}` | config.manage | Update title, order, layout, active |
 | POST | `/companies/{id}/apply-template?template=default` | config.manage | Add missing template items → `{template, added, updated}`; `&update_existing=true` also updates the template's existing parameters, rules and modules (audited) |
@@ -455,6 +491,7 @@ In development the browser talks only to Vite (:5173), which proxies `/api` to F
 | GET | `/plants/{id}/alerts` | alerts.view | `{reading, alerts, problems}` for the notification bell |
 | GET | `/plants/{id}/modules` | modules.view | Modules the user may open |
 | GET | `/plants/{id}/modules/{key}` | modules.view + readings.read | Widgets with their data (see 8.6g) |
+| GET | `/plants/{id}/modules/{key}/trend?widget=&hours=` | modules.view + readings.read | One trend chart's series for another of its time ranges |
 | GET | `/plants/{id}/operator-profiles` | operator_profiles.manage | Lower-ranked users at the plant (that the caller may manage) with their profile; `is_default` when no restrictions are stored |
 | PUT | `/plants/{id}/operator-profiles/{user_id}` | operator_profiles.manage | `{visible_modules: [...] | null, can_edit_readings, show_alerts}` (`null` = all modules, incl. future ones; unknown modules → 422) |
 | DELETE | `/plants/{id}/operator-profiles/{user_id}` | operator_profiles.manage | Remove restrictions (back to defaults) |
@@ -490,7 +527,8 @@ plant_settings    (plant_id, key) PK, company_id, value jsonb, updated_by, updat
 treatments        id, company_id, parameter_id, direction (high|low) (unique per parameter+direction),
                   cause, treatment, precautions, needs_review, updated_at
 rules             id, company_id, code (unique per company), title, kind (predicted_problem),
-                  condition_expr, probability_expr, action_text, affects_modules[], is_active, version,
+                  condition_expr, probability_expr, action_text, priority (high|medium|low, 0006),
+                  benefit_text (0006), eta_expr NULL (0006), affects_modules[], is_active, version,
                   sort_order, created_at, updated_at
 modules           id, company_id, key (unique per company), title, sort_order, is_active,
                   layout jsonb {"widgets": [...]}, created_at, updated_at
@@ -511,6 +549,7 @@ All primary keys are UUIDs generated by Postgres (`gen_random_uuid()`), so ids c
 - Step 2 tests: `test_engine` (evaluator incl. unsafe expressions, statuses, calculation order, rule helpers), `test_template` (the template is valid; companies get it; re-applying adds nothing), `test_config_api` (formula validation, cycles, reserved keys, versioning, deactivation blocked by dependents, rules, modules, treatments, tenant users get 403), `test_limits` (manager edits, operator 403, company-admin fallback, plant/company isolation, settings, RLS).
 - Time functions and KPIs: `test_engine` (change/rate/avg/total/event functions, minimum span, required references, coalesce), `test_template` (trend KPIs from a sample history, every rule decidable with history, sample snapshot predicts only TH-P02, update to latest template), `test_readings::test_trend_kpis_and_predictions_use_the_plant_history` (ΔP rate, time to clean and FLT-P01 from stored history).
 - Step 3 tests (`test_readings`): saving and merging (two users, different fields), no-op saves, validation, clearing values, **history unchanged after a formula change**, preview stores nothing, latest/history filters, permissions (company admin view-only, super admin 403, operator profile), alerts (severity, direction, treatment, fallback, modules affected; a limit change clears an alert; manager and operator see the same), module screens (layout from configuration, Filter/Thermal react to chemistry, insufficient data, **a new calculation appears in a module without code changes**), and the database layer (readings can't be updated/deleted; other companies and the platform see none).
+- CoC & Blowdown tests (`test_coc_module`): sample KPIs (CoC, evaporation, required blowdown, savings), required blowdown never negative, `high`/`low` helpers, the full module screen (cards, targets, status from another parameter, diagram, benefits, chart ranges, quick links), priority/benefit/ETA on problems, ETA from a conductivity trend, insufficient data without make-up conductivity, the trend endpoint (ranges only, chart only, module visibility), rule API with priority/benefit/validated ETA, template update refreshes priority, new companies get the CoC settings.
 - Step 5 tests (`test_operator_profiles_and_audit`): manager lists/restricts/resets operators and it is enforced on modules and saving; unknown modules rejected; other plants, self and other companies refused; operators and company admins get 403; audit log scoped per company, platform sees all and filters; plant users get 403. `test_create_platform_admin`: the CLI command.
 - Test files: `test_auth` (login, lockout, rate limit, refresh rotation and reuse detection, logout, deactivated users), `test_me_and_permissions` (per-role access matrix), `test_companies_and_plants`, `test_users` (rank rule, validation, deactivation, last-manager warning), `test_isolation` (company/plant isolation via API **and via raw SQL under RLS**), `test_rate_limit`, `test_health`.
 - In the test environment password hashing uses deliberately cheap argon2 parameters for speed.

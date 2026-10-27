@@ -21,6 +21,12 @@ const SETTING_LABELS: Record<string, string> = {
   clean_dp_baseline: 'Expected post-clean filter ΔP (bar)',
   min_water_per_clean: 'Minimum water per cleaning (m³)',
   outlet_turbidity_limit: 'Outlet turbidity quality limit (NTU)',
+  target_coc: 'Target cycles of concentration (conductivity setpoint = make-up conductivity × target)',
+  drift_loss: 'Drift loss (m³/h, design estimate)',
+  baseline_blowdown: 'Baseline blowdown before optimisation (m³/h)',
+  baseline_makeup: 'Baseline make-up water before optimisation (m³/h)',
+  water_cost: 'Make-up water cost (₹ per m³)',
+  chem_target: 'Chemical dosing target (L/h)',
 }
 
 export function LimitsPage() {

@@ -23,7 +23,9 @@ from app.templates.default import DEFAULT_TEMPLATE as T
 from tests.helpers import login, make_tenant, make_user, with_template
 
 KEYS = {p.key for p in T.parameters}
-FORMULAS = {p.key: parse_formula(p.formula) for p in T.parameters if p.kind == "calculated"}
+FORMULAS = {
+    p.key: parse_formula(p.formula) for p in T.parameters if p.kind == "calculated" and p.formula
+}
 SAMPLES = {p.key: p.sample for p in T.parameters if p.kind == "input"}
 # Formulas kept on measured parameters (used when a company switches them to calculated).
 MEASURED_FORMULAS = {
@@ -101,14 +103,18 @@ def test_rules_parse_reference_known_parameters_and_evaluate() -> None:
         assert isinstance(evaluate_rule(probability, context), float), rule.code
 
 
-def test_sample_data_predicts_thermal_fouling_only() -> None:
-    # Sample hardness 650 is above good max 600: thermal chemistry influence (TH-P02). The
-    # filter chemistry list (tds, sio2, mic, cond) is all in range, so no filter problem.
-    # Without history, trend-only rules are undecided (None), never matched.
+def test_sample_data_predicts_fouling_and_scaling_only() -> None:
+    # Sample hardness 650 is above good max 600: thermal chemistry influence (TH-P02), and with
+    # LSI 2.0 above its good max 1.5 also scaling risk (COC-P03). The filter chemistry list
+    # (tds, sio2, mic, cond) is in range, so no filter problem. Without history, trend-only
+    # rules are undecided (None), never matched.
     context = sample_context()
     outcomes = {r.code: evaluate_rule(parse_rule(r.condition), context) for r in T.rules}
 
-    assert {code for code, outcome in outcomes.items() if outcome is True} == {"TH-P02"}
+    assert {code for code, outcome in outcomes.items() if outcome is True} == {
+        "TH-P02",
+        "COC-P03",
+    }
     assert outcomes["TH-P05"] is None  # needs a range trend
 
 
@@ -159,10 +165,10 @@ def test_new_companies_start_with_the_template(client: TestClient, owner_db: Ses
     rules = client.get(f"/api/v1/companies/{company_id}/rules", headers=headers).json()
 
     assert len(params) == len(T.parameters)
-    assert [m["key"] for m in modules] == ["water_chemistry", "filter", "thermal"]
+    assert [m["key"] for m in modules] == ["water_chemistry", "filter", "thermal", "coc"]
     assert all(m["warnings"] == [] for m in modules)
     assert [r["code"] for r in rules] == [r.code for r in T.rules]
-    assert len(rules) == 13  # FLT-P01..P07 and TH-P01..P06
+    assert len(rules) == 22  # FLT-P01..P07, TH-P01..P06 and COC-P01..P09
 
 
 def test_applying_the_template_again_adds_nothing(client: TestClient, owner_db: Session) -> None:

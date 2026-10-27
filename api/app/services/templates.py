@@ -42,16 +42,28 @@ def _update_parameter(p: Parameter, tp: TemplateParameter) -> bool:
     return before != (p.label, p.unit, p.group_key, p.formula, p.precision, _limits_of(p))
 
 
+def _rule_snapshot(rule: Rule) -> tuple[object, ...]:
+    return (
+        rule.title,
+        rule.condition_expr,
+        rule.probability_expr,
+        rule.eta_expr,
+        rule.action_text,
+        rule.priority,
+        rule.benefit_text,
+        list(rule.affects_modules),
+    )
+
+
 def _update_rule(rule: Rule, tr: TemplateRule) -> bool:
-    before = (rule.title, rule.condition_expr, rule.probability_expr, rule.action_text,
-              list(rule.affects_modules))  # fmt: skip
-    if (rule.condition_expr, rule.probability_expr) != (tr.condition, tr.probability):
+    before = _rule_snapshot(rule)
+    expressions = (tr.condition, tr.probability, tr.eta)
+    if (rule.condition_expr, rule.probability_expr, rule.eta_expr) != expressions:
         rule.version += 1
-    rule.title, rule.condition_expr, rule.probability_expr = tr.title, tr.condition, tr.probability
-    rule.action_text, rule.affects_modules = tr.action, list(tr.affects)
-    after = (rule.title, rule.condition_expr, rule.probability_expr, rule.action_text,
-             list(rule.affects_modules))  # fmt: skip
-    return before != after
+    rule.condition_expr, rule.probability_expr, rule.eta_expr = expressions
+    rule.title, rule.action_text, rule.affects_modules = tr.title, tr.action, list(tr.affects)
+    rule.priority, rule.benefit_text = tr.priority, tr.benefit
+    return before != _rule_snapshot(rule)
 
 
 def apply_template(
@@ -114,8 +126,9 @@ def apply_template(
         db.add(
             Rule(
                 company_id=cid, code=tr.code, title=tr.title, condition_expr=tr.condition,
-                probability_expr=tr.probability, action_text=tr.action,
-                affects_modules=list(tr.affects), sort_order=order * 10,
+                probability_expr=tr.probability, eta_expr=tr.eta, action_text=tr.action,
+                priority=tr.priority, benefit_text=tr.benefit, affects_modules=list(tr.affects),
+                sort_order=order * 10,
             )
         )  # fmt: skip
         added["rules"] += 1

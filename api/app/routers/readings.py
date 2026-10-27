@@ -16,6 +16,7 @@ from app.schemas.readings import (
     ReadingInput,
     ReadingOut,
     SaveResult,
+    TrendSeries,
 )
 from app.services import plant_views, readings
 from app.services.plants import get_plant_in_scope
@@ -92,3 +93,16 @@ def module_view(
 ) -> ModuleView:
     """A module's widgets with the data each needs to be drawn."""
     return plant_views.module_view(db, principal, plant_id, key)
+
+
+@router.get("/modules/{key}/trend", response_model=list[TrendSeries])
+def module_trend(
+    plant_id: uuid.UUID,
+    key: str,
+    principal: CurrentPrincipal,
+    db: DbSession,
+    widget: Annotated[int, Query(ge=0, description="Position of the chart in the layout")],
+    hours: Annotated[int, Query(ge=1, le=24 * 90)],
+) -> list[TrendSeries]:
+    """One trend chart's series for another of its time ranges (e.g. 6H / 24H / 7D / 30D)."""
+    return plant_views.module_trend(db, principal, plant_id, key, widget, hours)

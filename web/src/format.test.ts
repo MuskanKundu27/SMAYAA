@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatValue, limitsText, parseInput, rangeBarPositions } from './format'
+import { formatDelta, formatEta, formatValue, limitsText, parseInput, rangeBarPositions, rangeLabel } from './format'
 
 const HARD = { warn_min: 100, good_min: 200, good_max: 600, warn_max: 800 }
 
@@ -54,5 +54,23 @@ describe('limitsText', () => {
   it('describes limits with units', () => {
     expect(limitsText(HARD, 'ppm')).toBe('Good 200–600 ppm · Warning 100–800 ppm')
     expect(limitsText(null)).toBe('No limits')
+  })
+})
+
+describe('dashboard labels', () => {
+  it('shows predicted-problem ETAs', () => {
+    expect(formatEta(null)).toBe('—')
+    expect(formatEta(0)).toBe('Now')
+    expect(formatEta(7.3)).toBe('7 h')
+    expect(formatEta(72)).toBe('3 days')
+  })
+
+  it('shows % changes with arrows', () => {
+    expect(formatDelta(27.7)).toBe('↑ 28%')
+    expect(formatDelta(-9.6)).toBe('↓ 10%')
+  })
+
+  it('names time ranges', () => {
+    expect([6, 24, 168, 720].map(rangeLabel)).toEqual(['6H', '24H', '7D', '30D'])
   })
 })

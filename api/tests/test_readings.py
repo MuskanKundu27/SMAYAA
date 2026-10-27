@@ -245,8 +245,9 @@ def test_alert_carries_severity_direction_modules_and_treatment(
     assert hard["unit"] == "ppm"
     assert hard["cause"].startswith("Hard make-up water")
     assert hard["needs_review"] is True  # template text is a sample
-    # Fouling (TH-P02) uses hardness and affects Thermal and Filter.
-    assert set(hard["modules"]) == {"water_chemistry", "thermal", "filter"}
+    # Fouling (TH-P02) uses hardness and affects Thermal and Filter; scaling risk (COC-P03)
+    # uses it too and is shown on CoC & Blowdown.
+    assert set(hard["modules"]) == {"water_chemistry", "thermal", "filter", "coc"}
     assert body["alerts"][0]["severity"] == "high"  # most severe first
     assert body["reading"]["changed_keys"] == ["hard"]
 
@@ -296,6 +297,7 @@ def test_modules_list_comes_from_configuration(client: TestClient, acme: Tenant)
         "Input Parameters",
         "Side-Stream Filtration",
         "Thermal Efficiency",
+        "CoC & Blowdown",
     ]
 
 
@@ -307,11 +309,12 @@ def test_water_chemistry_shows_editable_inputs_and_calculated_values(
     view = module(client, acme, "water_chemistry")
 
     assert [w["title"] for w in view["widgets"]] == [
-        "Chemistry", "Thermal", "Side-stream filter", "Indication", "Calculated values",
+        "Chemistry", "Thermal", "Side-stream filter", "Make-up, blowdown & dosing", "Indication",
+        "Calculated values",
     ]  # fmt: skip
     indication = next(w for w in view["widgets"] if w["title"] == "Indication")
-    assert [t["key"] for t in indication["tiles"]] == ["clean", "valve", "sspump", "bwt"]
-    assert indication["switches"] == ["clean", "valve", "sspump"]
+    assert [t["key"] for t in indication["tiles"]] == ["clean", "valve", "sspump", "bdvalve", "bwt"]
+    assert indication["switches"] == ["clean", "valve", "sspump", "bdvalve"]
     filter_row = next(w for w in view["widgets"] if w["title"] == "Side-stream filter")
     assert not {"clean", "bwt", "valve", "sspump"} & {t["key"] for t in filter_row["tiles"]}
     all_tiles = tiles(view)

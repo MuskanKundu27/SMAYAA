@@ -616,6 +616,33 @@ Every parameter already had a "kind": input (typed in) or calculated (formula). 
 - When rules inside the database (check constraints) block a new feature, change them with a migration, never by hand.
 - A more correct formula can change results a lot (LSI went from 0.70 to 2.00 with the same data), so limits set for the old formula must be reviewed too. We set new LSI limits from published guidance: about 0 to 1.5 is good (slightly scale-forming, controlled by the treatment chemicals), below 0 the water tends to corrode, and 2.5 is a common upper ceiling.
 
+## Entry 19 – The CoC & Blowdown module, built from building blocks (2026-10-27)
+
+**What we did**
+- Added a new module, **CoC & Blowdown**, that looks like the design mock-up: KPI cards with targets, a picture of the tower with make-up and blowdown flows, "customer benefits" cards, four trend charts with 6H / 24H / 7D / 30D buttons, a predicted-problems table, recommended actions and quick-action buttons.
+- New inputs: make-up conductivity, make-up flow, blowdown flow, ORP, chemical dosing flow and a blowdown-valve switch.
+- New calculations, taken from the engineering workbook and the cause-and-effect matrix:
+  - cycles of concentration (basin conductivity ÷ make-up conductivity) and the same number worked out from flows, plus how far the two disagree;
+  - evaporation from the heat load;
+  - the conductivity setpoint (make-up conductivity × target CoC);
+  - the blowdown that is really needed: evaporation ÷ (target CoC − 1) − drift;
+  - savings against the plant's "before" baseline.
+- Nine new predicted problems, such as "excessive blowdown", "rising conductivity" and "blowdown valve leakage". Each has a priority, an expected benefit and, where possible, an **ETA**: how many hours until the problem is expected.
+
+**Why**
+The design asks for many screen pieces we did not have. We could have built one special page, but every future module (Water Balance, Cooling Performance, …) needs the same pieces. So each piece became a general **widget** that any module can use, set up only with data.
+
+**How it works**
+- **Widgets:** each module is a list of widgets stored in the database. The server works out the numbers and statuses; the browser only draws them. A new option, `width`, lets widgets sit side by side (full, half, third or quarter of the screen).
+- **ETA:** a rule's ETA is just another formula. For rising conductivity it is (alarm level − current value) ÷ rise per hour. If the value is not rising, there is no estimate.
+- **New helpers:** `high('k')` and `low('k')` say whether a value is out of range on the high or the low side. So a rule can say "ORP too low" without hard-coding numbers.
+- **Settings:** targets and baselines (target CoC, water cost, baseline blowdown) are plant settings, which the manager edits on the Limits page.
+
+**What to learn**
+- Build small, general pieces; a new screen is then mostly configuration.
+- Keep numbers that customers may want to change (targets, costs, limits) as data, not code.
+- Check the screen in a real browser: tests proved the numbers were right, but a screenshot showed a chart overflowing its card.
+
 ---
 
 ## Glossary
@@ -711,3 +738,10 @@ Every parameter already had a "kind": input (typed in) or calculated (formula). 
 | **LSI (Langelier Saturation Index)** | A number that says whether water tends to form scale (positive) or to corrode (negative). |
 | **log10** | Base-10 logarithm: log10(1000) = 3. |
 | **Check constraint** | A rule inside the database that every row must follow; the database refuses rows that break it. |
+| **CoC (cycles of concentration)** | How many times more concentrated the tower water is than the fresh make-up water. |
+| **Blowdown** | Water drained on purpose from a cooling tower to remove concentrated salts. |
+| **Make-up water** | Fresh water added to replace what is lost by evaporation, blowdown and drift. |
+| **Drift** | Small water droplets carried out of the tower by the air. |
+| **ORP** | Oxidation-reduction potential (mV): shows how strong the disinfecting chemicals in the water are. |
+| **ETA** | Estimated time until something is expected to happen. |
+| **Widget** | A reusable screen building block (a card, a chart, a table) placed on a page by configuration. |

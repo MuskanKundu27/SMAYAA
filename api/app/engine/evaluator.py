@@ -134,7 +134,7 @@ NON_KEY_FUNCTIONS = frozenset({"setting"})
 
 # Names that can never be parameter keys.
 RESERVED_NAMES = frozenset(
-    {*MATH_FUNCTIONS, IF_ELSE, "base", "value", "status", "off", "sev", "count_off"}
+    {*MATH_FUNCTIONS, IF_ELSE, "base", "value", "status", "off", "high", "low", "sev", "count_off"}
     | set(TIME_FUNCTIONS)
     | {"setting", "known"}
     | {"and", "or", "not", "true", "false", "none", "True", "False", "None"}

@@ -23,6 +23,25 @@ export function formatDateTime(iso: string): string {
   })
 }
 
+/** Hours until a predicted problem: "Now", "3 h", "2 days"; null = no estimate. */
+export function formatEta(hours: number | null): string {
+  if (hours === null) return '—'
+  if (hours < 0.5) return 'Now'
+  if (hours < 48) return `${Math.round(hours)} h`
+  return `${Math.round(hours / 24)} days`
+}
+
+/** A % change with an arrow, e.g. "↑ 28%" or "↓ 12%". */
+export function formatDelta(delta: number): string {
+  const arrow = delta > 0 ? '↑' : delta < 0 ? '↓' : '→'
+  return `${arrow} ${Math.abs(Math.round(delta))}%`
+}
+
+/** Label of a time-range button: 6 → "6H", 24 → "24H", 168 → "7D", 720 → "30D". */
+export function rangeLabel(hours: number): string {
+  return hours > 24 && hours % 24 === 0 ? `${hours / 24}D` : `${hours}H`
+}
+
 export const STATUS_LABELS: Record<StatusLevel, string> = {
   good: 'Good',
   warn: 'Warning',

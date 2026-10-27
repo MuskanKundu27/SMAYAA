@@ -30,6 +30,10 @@ describe('widget registry', () => {
       'alert_list',
       'inputs_summary',
       'text_note',
+      'kpi_cards',
+      'recommended_actions',
+      'quick_links',
+      'system_diagram',
     ]
     expect(Object.keys(WIDGETS).sort()).toEqual(apiTypes.sort())
   })

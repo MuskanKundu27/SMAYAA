@@ -140,6 +140,7 @@ class Rule(Base):
     __table_args__ = (
         UniqueConstraint("company_id", "code", name="uq_rules_company_code"),
         CheckConstraint("kind IN ('predicted_problem')", name="kind_valid"),
+        CheckConstraint("priority IN ('high', 'medium', 'low')", name="priority_valid"),
     )
 
     id: Mapped[UuidPk]
@@ -150,6 +151,11 @@ class Rule(Base):
     condition_expr: Mapped[str] = mapped_column(Text)
     probability_expr: Mapped[str] = mapped_column(Text)
     action_text: Mapped[str] = mapped_column(Text, server_default="")
+    priority: Mapped[str] = mapped_column(String(10), server_default="medium")
+    benefit_text: Mapped[str] = mapped_column(Text, server_default="")
+    # Hours until the problem is expected (e.g. time for conductivity to reach its alarm level).
+    # NULL or a result of None means "no estimate".
+    eta_expr: Mapped[str | None] = mapped_column(Text)
     affects_modules: Mapped[list[str]] = mapped_column(
         ARRAY(String(60)), server_default=text("'{}'")
     )

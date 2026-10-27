@@ -81,11 +81,15 @@ HISTORY_MAX_POINTS = 5000  # newest readings loaded for the time functions
 def _active_rule_expressions(db: Session, company_id: object) -> Iterable[Expression]:
     rules = db.scalars(select(Rule).where(Rule.company_id == company_id, Rule.is_active.is_(True)))
     for rule in rules:
-        for source in (rule.condition_expr, rule.probability_expr):
+        for source in _rule_sources(rule):
             try:
                 yield parse_rule(source)
             except ExpressionError:
                 continue
+
+
+def _rule_sources(rule: Rule) -> list[str]:
+    return [s for s in (rule.condition_expr, rule.probability_expr, rule.eta_expr) if s]
 
 
 def load_history(db: Session, plant: Plant, hours: float, now: datetime) -> History | None:
@@ -137,7 +141,7 @@ def build_state(
 
 def _rule_references(rule: Rule) -> set[str]:
     refs: set[str] = set()
-    for source in (rule.condition_expr, rule.probability_expr):
+    for source in _rule_sources(rule):
         try:
             refs |= parse_rule(source).references
         except ExpressionError:
@@ -294,7 +298,22 @@ def predicted_problems(db: Session, state: PlantState) -> RuleResults:
                     probability=round(min(max(prob, 0.0), 100.0)) if prob is not None else None,
                     action=rule.action_text,
                     modules=list(rule.affects_modules),
+                    priority=rule.priority,
+                    benefit=rule.benefit_text,
+                    eta_hours=_eta_hours(rule, context),
                 )
             )
     matched.sort(key=lambda p: -(p.probability or 0))
     return RuleResults(matched, insufficient)
+
+
+def _eta_hours(rule: Rule, context: RuleContext) -> float | None:
+    """Hours until the problem is expected, from the rule's ETA expression (0 = now). No
+    expression, no result or a negative result (e.g. the trend is moving away) = no estimate."""
+    if not rule.eta_expr:
+        return None
+    try:
+        hours = _as_float(evaluate_rule(parse_rule(rule.eta_expr), context))
+    except ExpressionError:
+        return None
+    return None if hours is None or hours < 0 else round(hours, 1)

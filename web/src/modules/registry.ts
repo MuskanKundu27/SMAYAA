@@ -4,6 +4,12 @@
 import type { ComponentType } from 'react'
 
 import {
+  KpiCardsWidget,
+  QuickLinksWidget,
+  RecommendedActionsWidget,
+  SystemDiagramWidget,
+} from './dashboardWidgets'
+import {
   AlertListWidget,
   InputsSummaryWidget,
   PredictedProblemsWidget,
@@ -22,6 +28,10 @@ export const WIDGETS: Record<string, ComponentType<WidgetProps>> = {
   alert_list: AlertListWidget,
   trend_chart: TrendChartWidget,
   text_note: TextNoteWidget,
+  kpi_cards: KpiCardsWidget,
+  recommended_actions: RecommendedActionsWidget,
+  quick_links: QuickLinksWidget,
+  system_diagram: SystemDiagramWidget,
 }
 
 /** Unknown types (e.g. added on the server before the web app is updated) get a placeholder. */

@@ -12,11 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.principal import Principal
-from app.core.errors import NotFoundError
-from app.models import Module, Reading
-from app.schemas.config import LimitValues
+from app.core.errors import NotFoundError, ValidationFailedError
+from app.models import Module, Plant, Reading
+from app.schemas.config import LimitValues, QuickLink
 from app.schemas.readings import (
     Alert,
+    KpiCard,
     ModuleSummary,
     ModuleView,
     PlantAlerts,
@@ -101,6 +102,19 @@ def _widget_view(
     rule_results: RuleResults,
     plant_alerts: list[Alert],
 ) -> WidgetView:
+    view = _widget_content(db, widget, state, editable, rule_results, plant_alerts)
+    view.width = widget.get("width", "full")
+    return view
+
+
+def _widget_content(
+    db: Session,
+    widget: dict[str, Any],
+    state: PlantState,
+    editable: bool,
+    rule_results: RuleResults,
+    plant_alerts: list[Alert],
+) -> WidgetView:
     kind = widget.get("type", "")
     title = widget.get("title", "")
     params: list[str] = widget.get("params") or []
@@ -125,8 +139,33 @@ def _widget_view(
         return WidgetView(
             type=kind,
             title=title,
+            style=widget.get("style", "list"),
             problems=[p for p in rule_results.matched if p.code in codes],
             insufficient_rules=sorted(codes & set(rule_results.insufficient)),
+        )
+    if kind == "recommended_actions":
+        codes = set(widget.get("rules") or [])
+        return WidgetView(
+            type=kind, title=title, problems=[p for p in rule_results.matched if p.code in codes]
+        )
+    if kind == "kpi_cards":
+        return WidgetView(
+            type=kind,
+            title=title,
+            style=widget.get("style", "kpi"),
+            cards=[_kpi_card(item, state) for item in widget.get("items") or []],
+        )
+    if kind == "quick_links":
+        return WidgetView(
+            type=kind, title=title, links=[QuickLink(**i) for i in widget.get("items") or []]
+        )
+    if kind == "system_diagram":
+        roles = ("makeup", "blowdown", "sidestream")
+        return WidgetView(
+            type=kind,
+            title=title,
+            named={role: state.tile(widget[role]) for role in roles if widget.get(role)},
+            tiles=[state.tile(k) for k in widget.get("chemistry") or []],
         )
     if kind == "alert_list":
         only_modules = set(widget.get("modules") or [])
@@ -139,15 +178,50 @@ def _widget_view(
         ]
         return WidgetView(type=kind, title=title, alerts=shown)
     if kind == "trend_chart":
+        hours = int(widget.get("hours", 24))
         return WidgetView(
-            type=kind, title=title, series=_trend(db, state, params, int(widget.get("hours", 24)))
+            type=kind,
+            title=title,
+            series=_trend(db, state, params, hours),
+            hours=hours,
+            ranges=widget.get("ranges") or None,
+            combine=bool(widget.get("combine", False)),
         )
     if kind == "text_note":
         return WidgetView(type=kind, title=title, text=widget.get("text", ""))
     return WidgetView(type=kind, title=title)  # unknown type: the frontend shows a placeholder
 
 
-def module_view(db: Session, principal: Principal, plant_id: uuid.UUID, key: str) -> ModuleView:
+def _kpi_card(item: dict[str, Any], state: PlantState) -> KpiCard:
+    """One KPI or benefit card: the value, a target (the good range, or another parameter's
+    value as an upper target), the status colour and an optional % change."""
+    key = item["param"]
+    tile = state.tile(key)
+    target = item.get("target")
+    target_min = target_max = None
+    if target == "limits" and tile.limits is not None:
+        target_min, target_max = tile.limits.good_min, tile.limits.good_max
+    elif target and target != "limits":
+        target_max = state.values.get(target)
+    status_key = item.get("status_from") or key
+    status = state.statuses.get(status_key)
+    level = status.level if status and status_key in state.params else "na"
+    delta_key = item.get("delta")
+    return KpiCard(
+        tile=tile,
+        caption=item.get("caption", ""),
+        target_min=target_min,
+        target_max=target_max,
+        status=level,
+        delta=state.values.get(delta_key) if delta_key else None,
+        delta_good=item.get("delta_good", "up"),
+        in_range=None if level == "na" else level == "good",
+    )
+
+
+def _module_for(
+    db: Session, principal: Principal, plant_id: uuid.UUID, key: str
+) -> tuple[Plant, Module]:
     principal.require("modules.view")
     principal.require("readings.read")
     plant = get_plant_in_scope(db, principal, plant_id)
@@ -157,6 +231,29 @@ def module_view(db: Session, principal: Principal, plant_id: uuid.UUID, key: str
     )
     if module is None:
         raise NotFoundError("Module not found.")
+    return plant, module
+
+
+def module_trend(
+    db: Session, principal: Principal, plant_id: uuid.UUID, key: str, widget: int, hours: int
+) -> list[TrendSeries]:
+    """The series of one trend widget for another time range (the 6H / 24H / 7D buttons).
+    Only the widget's own parameters and its configured ranges can be asked for."""
+    plant, module = _module_for(db, principal, plant_id, key)
+    widgets = module.layout.get("widgets", [])
+    if not 0 <= widget < len(widgets) or widgets[widget].get("type") != "trend_chart":
+        raise NotFoundError("Trend chart not found.")
+    config = widgets[widget]
+    allowed = set(config.get("ranges") or []) | {int(config.get("hours", 24))}
+    if hours not in allowed:
+        message = "This time range is not available for this chart."
+        raise ValidationFailedError(message, [{"field": "hours", "message": message}])
+    state = build_state(db, plant, {})
+    return _trend(db, state, list(config.get("params") or []), hours)
+
+
+def module_view(db: Session, principal: Principal, plant_id: uuid.UUID, key: str) -> ModuleView:
+    plant, module = _module_for(db, principal, plant_id, key)
 
     reading = latest_reading(db, plant.id)
     state = build_state(

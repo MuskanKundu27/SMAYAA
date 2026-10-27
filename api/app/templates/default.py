@@ -52,6 +52,9 @@ class TemplateRule:
     probability: str
     action: str
     affects: tuple[str, ...]
+    priority: str = "medium"  # high | medium | low (severity / action priority)
+    benefit: str = ""  # expected benefit of the recommended action
+    eta: str | None = None  # hours until the problem is expected
 
 
 @dataclass(frozen=True)
@@ -87,6 +90,14 @@ PARAMETERS = [
     P("alk", "Alkalinity", "ppm", "chemistry", 300, (100, 150, 350, 450), precision=0),
     P("sio2", "Silica", "ppm", "chemistry", 95, (0, 0, 120, 150), precision=0),
     P("mic", "Microbial count", "CFU/mL", "chemistry", 600, (0, 0, 1000, 5000), precision=0),
+    # ORP target range from the CoC & Blowdown design (600-800 mV). Chlorine programmes often
+    # run 400-600 mV: set per site with the treatment supplier.
+    P("orp", "ORP", "mV", "chemistry", 650, (500, 600, 800, 900), precision=0),
+    # Make-up, blowdown and dosing (Instrument Index: AIT-EC-MU, FT-MU, FT-BD, CHEM-FB)
+    P("mucond", "Make-up conductivity", "µS/cm", "coc", 480, precision=0),
+    P("muflow", "Make-up flow", "m³/h", "coc", 17.5, precision=1),
+    P("bdflow", "Blowdown flow", "m³/h", "coc", 3.4),
+    P("chemdose", "Chemical dosing flow", "L/h", "coc", 2.35),
     # Thermal (typed in or from the plant system)
     P("ts", "Supply temperature", "°C", "thermal", 31, (20, 25, 32, 35), precision=1),
     P("tr", "Return temperature", "°C", "thermal", 39, (30, 35, 42, 45), precision=1),
@@ -118,6 +129,7 @@ PARAMETERS = [
     P("oil", "Oil in water", "mg/L", "filter", 0, precision=1),
     P("valve", "Bypass valve open", "", "indication", 0, precision=0),
     P("sspump", "Side-stream pump running", "", "indication", 1, precision=0),
+    P("bdvalve", "Blowdown valve open", "", "indication", 1, precision=0),
     # Calculated: chemistry
     # LSI = pH - pHs, pHs = (9.3 + A + B) - (C + D); A = (log10(TDS) - 1) / 10,
     # B = -13.12 log10(T + 273.15) + 34 (T = return temperature, the hottest water),
@@ -165,6 +177,43 @@ PARAMETERS = [
     P("bw", "Water per cleaning", "m³", "filter", formula="bwf * bwt / 60", precision=1),
     P("treated", "m³ treated per cleaning (7 days)", "m³", "filter",
       formula="total('ssflow', 168) / events('clean', 168)", precision=0),
+    # Calculated: CoC & Blowdown (engineering workbook "CoC & Blowdown" sheet and the Cause &
+    # Effect Matrix KPI library). Targets and baselines are plant settings.
+    P("coc", "Cycles of concentration", "", "coc", limits=(4, 5, 6, 7),
+      formula="cond / mucond", precision=1),
+    # Flow-based CoC includes drift (KPI-17: "flow CoC should include evaporation/drift").
+    P("cocflow", "CoC by flow", "", "coc", formula="muflow / (bdflow + setting('drift_loss'))",
+      precision=1),
+    P("cocmis", "CoC mismatch (conductivity vs flow)", "%", "coc", limits=(0, 0, 10, 20),
+      formula="abs(coc - cocflow) / coc * 100", precision=1),
+    # Water-side evaporation: heat load / latent heat (h_fg = 2501 - 2.361 x mean water temp).
+    P("evap", "Evaporation", "m³/h", "coc",
+      formula="heat * 3600 / ((2501 - 2.361 * (tr + ts) / 2) * 1000)"),
+    P("condsp", "Conductivity setpoint", "µS/cm", "coc",
+      formula="mucond * setting('target_coc')", precision=0),
+    # High warning about 5 % above the setpoint, high-high alarm about 10 % (Setpoint Builder).
+    P("condvsp", "Conductivity vs setpoint", "%", "coc", limits=(-100, -100, 5, 10),
+      formula="(cond - condsp) / condsp * 100", precision=1),
+    # Theoretical blowdown = E / (target CoC - 1) - drift, never negative (KPI-09).
+    P("bdreq", "Required blowdown", "m³/h", "coc",
+      formula="max(0, evap / (setting('target_coc') - 1) - setting('drift_loss'))"),
+    P("bddev", "Blowdown vs required", "%", "coc", limits=(-25, -10, 10, 25),
+      formula="(bdflow - bdreq) / bdreq * 100", precision=1),
+    # Benefits against the plant's baseline (before optimisation), set by the manager.
+    P("bdlower", "Blowdown reduction vs baseline", "%", "coc",
+      formula="(setting('baseline_blowdown') - bdflow) / setting('baseline_blowdown') * 100",
+      precision=0),
+    P("mulower", "Water use reduction vs baseline", "%", "coc",
+      formula="(setting('baseline_makeup') - muflow) / setting('baseline_makeup') * 100",
+      precision=0),
+    # Uses the 24 h average make-up when there is enough history, else the latest value.
+    P("watersaved", "Water saved (24 h)", "m³", "coc",
+      formula="(setting('baseline_makeup') - coalesce(avg('muflow', 24), muflow)) * 24",
+      precision=0),
+    P("costsaved", "Water cost saved (24 h)", "₹", "coc",
+      formula="watersaved * setting('water_cost')", precision=0),
+    P("chemvt", "Chemical use vs target", "%", "coc",
+      formula="(chemdose - setting('chem_target')) / setting('chem_target') * 100", precision=0),
 ]  # fmt: skip
 
 
@@ -226,6 +275,30 @@ TREATMENTS = [
     T("rem", "low", "Filter breakthrough, damaged media/screen or bypass.",
       "Inspect screen/media for damage or bypass; backwash.",
       "Poor filtration increases fouling in the tower."),
+    T("orp", "low", "Biocide underfeed, high biological demand or a failed dosing pump.",
+      "Check chemical stock, dosing pump, injection point and mixing; restore biocide feed.",
+      "Low ORP raises biological growth and Legionella risk."),
+    T("orp", "high", "Oxidising biocide overdosing.",
+      "Reduce biocide dose; validate the ORP analyser against a lab test.",
+      "High oxidant levels increase corrosion of carbon steel and copper."),
+    T("coc", "high", "Too little blowdown, controller setpoint too high or make-up quality change.",
+      "Increase blowdown; check the conductivity controller, probe calibration and setpoint.",
+      "High cycles raise scaling risk; confirm the treatment programme's CoC limit."),
+    T("coc", "low", "Excess blowdown, passing blowdown valve, leak or overflow.",
+      "Reduce blowdown towards the required rate; inspect the blowdown valve and overflow.",
+      "Low cycles waste water and treatment chemicals."),
+    T("cocmis", "high", "Meter error, unmetered losses (overflow, leak, drift) or contamination.",
+      "Validate conductivity and flow meters; inspect overflow, drains and leaks.",
+      "Do not raise CoC until the methods agree again."),
+    T("condvsp", "high", "Insufficient blowdown or rapid concentration.",
+      "Verify the blowdown valve and meter; start a controlled blowdown.",
+      "Protect basin level while increasing blowdown."),
+    T("bddev", "high", "Blowdown above the rate needed for the target CoC.",
+      "Reduce blowdown; check controller setpoint and for a passing valve.",
+      "Change setpoints in small steps and watch conductivity."),
+    T("bddev", "low", "Blowdown below the rate needed for the target CoC.",
+      "Increase blowdown; check the blowdown valve and line for blockage.",
+      "Conductivity and scaling risk will rise if blowdown stays low."),
 ]  # fmt: skip
 
 
@@ -242,6 +315,8 @@ STABLE_CONDITIONS = (
 )
 
 R = TemplateRule
+COC_CHEMISTRY_OK = "count_off(['lsi', 'ph', 'hard', 'alk', 'sio2', 'orp']) == 0"
+COND_RATE = "rate('cond', 6)"  # µS/cm per hour over the last 6 h
 
 # Predicted problems from the engineering note. Conditions and probabilities are demo
 # heuristics until trained models take over the same codes.
@@ -310,11 +385,66 @@ RULES = [
       "rate('sfe', 24) > 0 and coalesce(rate('heat', 24), 0) <= 0",
       "min(95, 30 + sev('fan'))",
       "Look for airflow restriction, hydraulic inefficiency or fouling.", ("thermal",)),
+    # --- CoC & Blowdown (Cause & Effect Matrix COC-01..03, WB-03, WB-04, SC-01, BIO-01/02) ---
+    # ETA = hours until the problem is expected (0 = now); negative or no result = no estimate.
+    R("COC-P01", "Excessive blowdown",
+      "high('bddev')",
+      "min(95, 40 + sev('bddev') + sev('coc'))",
+      "Adjust blowdown to maintain CoC: reduce towards the required rate and check the"
+      " conductivity controller setpoint.", ("coc",), priority="high",
+      benefit="Maintain optimal CoC · save water", eta="0"),
+    R("COC-P02", "Rising conductivity",
+      f"high('condvsp') or (coalesce({COND_RATE}, 0) > 0 and condvsp > -5)",
+      f"min(95, 30 + sev('condvsp') + if_else(coalesce({COND_RATE}, 0) > 0, 25, 0))",
+      "Review the conductivity setpoint; verify the blowdown valve and meter and start a"
+      " controlled blowdown.", ("coc",), priority="high",
+      benefit="Prevent scaling · protect assets",
+      eta=f"if_else(cond >= condsp * 1.1, 0, (condsp * 1.1 - cond) / {COND_RATE})"),
+    R("COC-P03", "Scaling risk increasing",
+      "(high('lsi') or coalesce(rate('lsi', 24), 0) * 24 > 0.1)"
+      " and (high('coc') or high('hard') or high('alk') or high('ph'))",
+      "min(95, 25 + sev('lsi') + 10 * count_off(['coc', 'hard', 'alk', 'ph']))",
+      "Lower CoC (increase blowdown); verify scale-inhibitor and acid dosing.",
+      ("coc", "thermal"), priority="high", benefit="Protect heat transfer · avoid scale",
+      eta="if_else(lsi >= 2.5, 0, (2.5 - lsi) / rate('lsi', 24))"),
+    R("COC-P04", "Blowdown valve leakage",
+      "coalesce(bdvalve, 1) < 0.5 and bdflow > 0.1",
+      "min(95, 45 + min(40, 10 * bdflow))",
+      "Inspect the blowdown valve and piping; repair a passing valve or closed bypass.",
+      ("coc",), priority="medium", benefit="Prevent water loss · improve efficiency", eta="0"),
+    R("COC-P05", "Conductivity rising with blowdown valve open",
+      f"coalesce(bdvalve, 0) >= 0.5 and coalesce({COND_RATE}, 0) > 0 and condvsp > 0",
+      "min(95, 35 + sev('condvsp'))",
+      "Inspect the blowdown valve and line for blockage; check make-up water quality.",
+      ("coc",), priority="high", benefit="Restore conductivity control"),
+    R("COC-P06", "CoC mismatch: conductivity vs flow",
+      "off('cocmis')",
+      "min(95, 30 + sev('cocmis'))",
+      "Validate conductivity and flow meters; inspect overflow and leaks; hold any CoC increase.",
+      ("coc",), priority="high", benefit="Reliable CoC and water-balance data"),
+    R("COC-P07", "Opportunity to raise CoC",
+      f"condvsp < -5 and {COC_CHEMISTRY_OK}",
+      "min(95, 30 + min(40, -condvsp))",
+      "Raise the conductivity setpoint gradually (0.25 to 0.5 CoC per step) and watch scale"
+      " indicators.", ("coc",), priority="medium", benefit="Save water and chemicals"),
+    R("COC-P08", "Corrosion / biological control risk",
+      "low('orp') or low('ph') or low('lsi')",
+      "min(95, 25 + sev('orp') + sev('ph') + sev('lsi'))",
+      "Verify corrosion-inhibitor and biocide dosing; check the dosing pump and chemical tank.",
+      ("coc",), priority="medium", benefit="Reduce corrosion · extend asset life"),
+    R("COC-P09", "Chemical overdosing",
+      "chemvt > 15 and not low('orp')",
+      "min(95, 30 + min(40, chemvt - 15) + sev('orp'))",
+      "Reduce the dose towards target and validate the ORP analyser.", ("coc",),
+      priority="medium", benefit="Reduce chemical cost"),
 ]  # fmt: skip
 
 
 FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
+COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
+# 6H / 24H / 7D / 30D buttons; four charts side by side.
+COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
 
 MODULES = [
     TemplateModule(
@@ -324,11 +454,12 @@ MODULES = [
             {"type": "input_group", "title": "Chemistry", "group": "chemistry"},
             {"type": "input_group", "title": "Thermal", "group": "thermal"},
             {"type": "input_group", "title": "Side-stream filter", "group": "filter"},
+            {"type": "input_group", "title": "Make-up, blowdown & dosing", "group": "coc"},
             {
                 "type": "input_group",
                 "title": "Indication",
-                "params": ["clean", "valve", "sspump", "bwt"],
-                "switches": ["clean", "valve", "sspump"],
+                "params": ["clean", "valve", "sspump", "bdvalve", "bwt"],
+                "switches": ["clean", "valve", "sspump", "bdvalve"],
             },
             {
                 "type": "value_tiles",
@@ -386,12 +517,76 @@ MODULES = [
             {"type": "predicted_problems", "title": "Predicted problems", "rules": THERMAL_RULES},
         ],
     ),
+    TemplateModule(
+        "coc",
+        "CoC & Blowdown",
+        [
+            {
+                "type": "kpi_cards",
+                "items": [
+                    {"param": "coc", "target": "limits"},
+                    {"param": "bdflow", "target": "bdreq", "status_from": "bddev"},
+                    {"param": "cond", "target": "condsp", "status_from": "condvsp"},
+                    {"param": "ph", "target": "limits"},
+                    {"param": "orp", "target": "limits"},
+                    {"param": "costsaved", "caption": "vs baseline", "delta": "mulower"},
+                    {"param": "chemdose", "caption": "vs target", "delta": "chemvt",
+                     "delta_good": "down"},
+                ],
+            },
+            {
+                "type": "system_diagram",
+                "title": "CoC & Blowdown System Overview",
+                "width": "half",
+                "makeup": "muflow",
+                "blowdown": "bdflow",
+                "sidestream": "dp",
+                "chemistry": ["cond", "ph", "orp", "ts"],
+            },
+            {
+                "type": "kpi_cards",
+                "title": "Customer Benefits Today",
+                "style": "benefit",
+                "width": "half",
+                "items": [
+                    {"param": "bdlower", "caption": "vs baseline"},
+                    {"param": "coc", "range_caption": True},
+                    {"param": "orp", "range_caption": True},
+                    {"param": "costsaved", "caption": "vs baseline"},
+                    {"param": "mulower", "caption": "vs baseline"},
+                ],
+            },
+            {"type": "trend_chart", "title": "CoC Trend", "params": ["coc"], **COC_TRENDS},
+            {"type": "trend_chart", "title": "Blowdown Trend", "params": ["bdflow", "bdreq"],
+             "combine": True, **COC_TRENDS},
+            {"type": "trend_chart", "title": "Conductivity & pH", "params": ["cond", "ph"],
+             "combine": True, **COC_TRENDS},
+            {"type": "trend_chart", "title": "ORP & Chemical Use", "params": ["orp", "chemdose"],
+             "combine": True, **COC_TRENDS},
+            {"type": "predicted_problems", "title": "Predicted Problems", "rules": COC_RULES,
+             "style": "table", "width": "third"},
+            {"type": "recommended_actions", "title": "Recommended Actions", "rules": COC_RULES,
+             "width": "third"},
+            {
+                "type": "quick_links",
+                "title": "Quick Actions",
+                "width": "third",
+                "items": [
+                    {"label": "Adjust blowdown setpoint", "target": "limits"},
+                    {"label": "Review chemistry readings", "target": "module:water_chemistry"},
+                    {"label": "Check side-stream filter", "target": "module:filter"},
+                    {"label": "Check thermal performance", "target": "module:thermal"},
+                ],
+            },
+        ],
+    ),
 ]  # fmt: skip
 
 
 DEFAULT_TEMPLATE = Template(
     key="default",
-    name="SMAYAA standard (Input Parameters, Side-Stream Filtration, Thermal Efficiency)",
+    name="SMAYAA standard (Input Parameters, Side-Stream Filtration, Thermal Efficiency,"
+    " CoC & Blowdown)",
     parameters=PARAMETERS,
     treatments=TREATMENTS,
     rules=RULES,
@@ -405,6 +600,14 @@ DEFAULT_TEMPLATE = Template(
         "design_wbt": 26.0,
         "clean_dp_baseline": 0.2,
         "min_water_per_clean": 2.5,
+        # CoC & Blowdown: target CoC (conductivity setpoint = make-up EC x target CoC), drift
+        # (design estimate), baselines before optimisation, water cost and dosing target.
+        "target_coc": 5.0,
+        "drift_loss": 0.2,
+        "baseline_blowdown": 4.7,
+        "baseline_makeup": 21.5,
+        "water_cost": 45.0,
+        "chem_target": 2.6,
     },
 )
 

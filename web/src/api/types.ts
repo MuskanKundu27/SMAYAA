@@ -58,12 +58,37 @@ export interface Alert {
   needs_review: boolean
 }
 
+export type Priority = 'high' | 'medium' | 'low'
+
 export interface PredictedProblem {
   code: string
   title: string
   probability: number | null
   action: string
   modules: string[]
+  priority: Priority
+  benefit: string
+  /** Hours until the problem is expected (0 = now); null = no estimate. */
+  eta_hours: number | null
+}
+
+export interface KpiCard {
+  tile: Tile
+  caption: string
+  target_min: number | null
+  target_max: number | null
+  status: StatusLevel
+  /** A % change shown with an arrow (e.g. less make-up water than the baseline). */
+  delta: number | null
+  /** Which direction of the change is good (green). */
+  delta_good: 'up' | 'down'
+  in_range: boolean | null
+}
+
+export interface QuickLink {
+  label: string
+  /** "module:<key>", "limits" or "operator-profiles". */
+  target: string
 }
 
 export interface TrendSeries {
@@ -74,9 +99,12 @@ export interface TrendSeries {
   points: { t: string; v: number | null }[]
 }
 
+export type WidgetWidth = 'full' | 'half' | 'third' | 'quarter'
+
 export interface WidgetView {
   type: string
   title: string
+  width?: WidgetWidth
   tiles: Tile[] | null
   /** Tile keys drawn as on/off switches (input_group). */
   switches?: string[] | null
@@ -85,6 +113,13 @@ export interface WidgetView {
   alerts: Alert[] | null
   series: TrendSeries[] | null
   text: string | null
+  style?: string | null
+  hours?: number | null
+  ranges?: number[] | null
+  combine?: boolean | null
+  cards?: KpiCard[] | null
+  links?: QuickLink[] | null
+  named?: Record<string, Tile> | null
 }
 
 export interface Person {
@@ -254,6 +289,9 @@ export interface Rule {
   condition_expr: string
   probability_expr: string
   action_text: string
+  priority: Priority
+  benefit_text: string
+  eta_expr: string | null
   affects_modules: string[]
   is_active: boolean
   version: number
@@ -264,6 +302,7 @@ export interface RuleTestResult {
   ok: boolean
   matched: boolean | null
   probability: number | null
+  eta_hours?: number | null
   references: string[]
   error: string | null
 }

@@ -9,6 +9,7 @@ import { formatTime, parseInput } from '../format'
 import { usePlantData } from '../plant/usePlantData'
 import { ModuleEditingContext } from './editing'
 import type { ModuleEditing, SaveState } from './editing'
+import { ModuleLocationContext } from './moduleContext'
 import { widgetFor } from './registry'
 
 const PREVIEW_DELAY_MS = 400
@@ -67,6 +68,7 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
   }, [plantId, moduleKey, version])
 
   const saved = useMemo(() => tilesByKey(view), [view])
+  const location = useMemo(() => ({ plantId, moduleKey }), [plantId, moduleKey])
 
   // Live preview while typing: after a short pause, ask the server what the screen would show.
   useEffect(() => {
@@ -167,19 +169,27 @@ function ModuleScreen({ plantId, moduleKey }: { plantId: string; moduleKey: stri
   if (!view) return <p className="muted">Loading…</p>
 
   return (
-    <ModuleEditingContext.Provider value={editing}>
-      <div className="module-head">
-        <h1>{view.title}</h1>
-        <p className="muted module-head__meta">
-          {view.reading
-            ? `Last updated by ${view.reading.created_by?.name ?? 'unknown'} at ${formatTime(view.reading.recorded_at)}`
-            : 'No readings yet.'}
-        </p>
-      </div>
-      {view.widgets.map((widget, index) => {
-        const Widget = widgetFor(widget.type)
-        return <Widget key={`${widget.type}-${index}`} widget={widget} />
-      })}
-    </ModuleEditingContext.Provider>
+    <ModuleLocationContext.Provider value={location}>
+      <ModuleEditingContext.Provider value={editing}>
+        <div className="module-head">
+          <h1>{view.title}</h1>
+          <p className="muted module-head__meta">
+            {view.reading
+              ? `Last updated by ${view.reading.created_by?.name ?? 'unknown'} at ${formatTime(view.reading.recorded_at)}`
+              : 'No readings yet.'}
+          </p>
+        </div>
+        <div className="module-grid">
+          {view.widgets.map((widget, index) => {
+            const Widget = widgetFor(widget.type)
+            return (
+              <div key={`${widget.type}-${index}`} className={`module-grid__item module-grid__item--${widget.width ?? 'full'}`}>
+                <Widget widget={widget} index={index} />
+              </div>
+            )
+          })}
+        </div>
+      </ModuleEditingContext.Provider>
+    </ModuleLocationContext.Provider>
   )
 }

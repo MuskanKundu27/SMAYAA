@@ -25,9 +25,14 @@ from app.services.config_common import (
 )
 
 RULE_FIELDS = [
-    "code", "title", "condition_expr", "probability_expr", "action_text", "affects_modules",
-    "is_active", "version", "sort_order",
+    "code", "title", "condition_expr", "probability_expr", "action_text", "priority",
+    "benefit_text", "eta_expr", "affects_modules", "is_active", "version", "sort_order",
 ]  # fmt: skip
+EXPRESSION_FIELDS = ("condition_expr", "probability_expr", "eta_expr")
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    return value.strip() if value and value.strip() else None
 
 
 def _parse_checked(field: str, source: str, active: dict[str, Parameter]) -> Expression:
@@ -60,8 +65,11 @@ def create_rule(db: Session, principal: Principal, company_id: uuid.UUID, data: 
     if db.scalar(select(Rule.id).where(Rule.company_id == company_id, Rule.code == data.code)):
         raise ConflictError(f"A rule with code '{data.code}' already exists.")
     active = active_parameters(db, company_id)
+    data.eta_expr = _blank_to_none(data.eta_expr)
     _parse_checked("condition_expr", data.condition_expr, active)
     _parse_checked("probability_expr", data.probability_expr, active)
+    if data.eta_expr:
+        _parse_checked("eta_expr", data.eta_expr, active)
 
     rule = Rule(company_id=company_id, **data.model_dump())
     db.add(rule)
@@ -81,17 +89,18 @@ def update_rule(
     rule = _get_rule(db, company_id, code)
     before = audit.snapshot(rule, RULE_FIELDS)
     changes: dict[str, Any] = data.model_dump(exclude_unset=True)
+    if "eta_expr" in changes:
+        changes["eta_expr"] = _blank_to_none(changes["eta_expr"])
 
     expressions_changed = any(
-        f in changes and changes[f] != getattr(rule, f)
-        for f in ("condition_expr", "probability_expr")
+        f in changes and changes[f] != getattr(rule, f) for f in EXPRESSION_FIELDS
     )
     if changes.get("is_active", rule.is_active) and (expressions_changed or not rule.is_active):
         active = active_parameters(db, company_id)
-        _parse_checked("condition_expr", changes.get("condition_expr", rule.condition_expr), active)
-        _parse_checked(
-            "probability_expr", changes.get("probability_expr", rule.probability_expr), active
-        )
+        for field in EXPRESSION_FIELDS:
+            source = changes.get(field, getattr(rule, field))
+            if source:
+                _parse_checked(field, source, active)
 
     for field, value in changes.items():
         setattr(rule, field, value)
@@ -119,6 +128,8 @@ def test_rule(
             if data.probability_expr
             else None
         )
+        eta_source = _blank_to_none(data.eta_expr)
+        eta = _parse_checked("eta_expr", eta_source, active) if eta_source else None
     except ValidationFailedError as exc:
         return RuleTestResult(
             ok=False, matched=None, probability=None, references=[], error=exc.message
@@ -134,11 +145,17 @@ def test_rule(
     context = RuleContext(values, statuses, None, settings)
     matched = evaluate_rule(condition, context)
     prob = evaluate_rule(probability, context) if probability else None
-    references = sorted(condition.references | (probability.references if probability else set()))
+    eta_hours = evaluate_rule(eta, context) if eta else None
+    references = sorted(
+        condition.references
+        | (probability.references if probability else set())
+        | (eta.references if eta else set())
+    )
     return RuleTestResult(
         ok=matched is not None,
         matched=bool(matched) if matched is not None else None,
         probability=float(prob) if isinstance(prob, int | float) else None,
+        eta_hours=float(eta_hours) if isinstance(eta_hours, int | float) else None,
         references=references,
         error=None if matched is not None else "Not enough data to decide.",
     )

@@ -111,12 +111,18 @@ class TreatmentOut(TreatmentIn):
 # --- Rules -------------------------------------------------------------------------------------
 
 
+Priority = Literal["high", "medium", "low"]
+
+
 class RuleCreate(BaseModel):
     code: str = Field(pattern=RULE_CODE_PATTERN, description="e.g. TH-P01")
     title: str = Field(min_length=1, max_length=200)
     condition_expr: str
     probability_expr: str
     action_text: str = Field(default="", max_length=2000)
+    priority: Priority = "medium"
+    benefit_text: str = Field(default="", max_length=500)
+    eta_expr: str | None = Field(default=None, description="Hours until expected; optional")
     affects_modules: list[str] = Field(default_factory=list)
     sort_order: int = 0
 
@@ -126,6 +132,9 @@ class RuleUpdate(BaseModel):
     condition_expr: str | None = None
     probability_expr: str | None = None
     action_text: str | None = Field(default=None, max_length=2000)
+    priority: Priority | None = None
+    benefit_text: str | None = Field(default=None, max_length=500)
+    eta_expr: str | None = None  # send "" or null to remove the estimate
     affects_modules: list[str] | None = None
     sort_order: int | None = None
     is_active: bool | None = None
@@ -139,6 +148,9 @@ class RuleOut(ApiModel):
     condition_expr: str
     probability_expr: str
     action_text: str
+    priority: str
+    benefit_text: str
+    eta_expr: str | None
     affects_modules: list[str]
     is_active: bool
     version: int
@@ -148,6 +160,7 @@ class RuleOut(ApiModel):
 class RuleTest(BaseModel):
     condition_expr: str
     probability_expr: str | None = None
+    eta_expr: str | None = None
     values: dict[str, float | None] = Field(
         default_factory=dict, description="Input values (calculated values are derived)"
     )
@@ -158,6 +171,7 @@ class RuleTestResult(BaseModel):
     ok: bool
     matched: bool | None
     probability: float | None
+    eta_hours: float | None = None
     references: list[str]
     error: str | None
 
@@ -171,6 +185,8 @@ Keys = list[Annotated[str, Field(max_length=60)]]
 
 class _Widget(BaseModel):
     title: str = Field(default="", max_length=100)
+    # Share of the screen width; narrow screens always use the full width.
+    width: Literal["full", "half", "third", "quarter"] = "full"
 
 
 class InputGroupWidget(_Widget):
@@ -195,15 +211,80 @@ class ValueTilesWidget(_Widget):
     only_calculated: bool = False
 
 
+Hours = Annotated[int, Field(ge=1, le=24 * 90)]
+Key = Annotated[str, Field(max_length=60)]
+
+
 class TrendChartWidget(_Widget):
     type: Literal["trend_chart"]
     params: Keys
-    hours: int = Field(default=24, ge=1, le=24 * 90)
+    hours: Hours = 24
+    # Time-range buttons, e.g. [6, 24, 168, 720] for 6H / 24H / 7D / 30D. `hours` is the one
+    # shown first.
+    ranges: list[Hours] | None = Field(default=None, max_length=6)
+    # Draw all series in one chart (first series on the left axis, the others on the right).
+    combine: bool = False
 
 
 class PredictedProblemsWidget(_Widget):
     type: Literal["predicted_problems"]
     rules: Keys
+    # "table": one row per problem with severity (rule priority), probability and ETA.
+    style: Literal["list", "table"] = "list"
+
+
+class RecommendedActionsWidget(_Widget):
+    """The recommended action, priority and expected benefit of each matched rule."""
+
+    type: Literal["recommended_actions"]
+    rules: Keys
+
+
+class KpiCardItem(BaseModel):
+    param: Key
+    caption: str = Field(default="", max_length=100)
+    # "limits": show the good range as the target; a parameter key: show "≤ its value".
+    target: Key | None = None
+    # Take the status colour from another parameter (e.g. blowdown coloured by its deviation
+    # from the required blowdown).
+    status_from: Key | None = None
+    # A parameter holding a % change, shown with an up/down arrow next to the caption.
+    delta: Key | None = None
+    # Which way of the % change is good (green): "up" (e.g. savings) or "down" (e.g. chemical use).
+    delta_good: Literal["up", "down"] = "up"
+    # Caption from the status: "Within target range" / "Outside target range".
+    range_caption: bool = False
+
+
+class KpiCardsWidget(_Widget):
+    type: Literal["kpi_cards"]
+    items: list[KpiCardItem] = Field(min_length=1, max_length=20)
+    style: Literal["kpi", "benefit"] = "kpi"
+
+
+QUICK_LINK_TARGET = r"^(module:[a-z][a-z0-9_]{0,59}|limits|operator-profiles)$"
+
+
+class QuickLink(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    # Where the button goes: a module ("module:water_chemistry") or a page ("limits").
+    target: str = Field(pattern=QUICK_LINK_TARGET)
+
+
+class QuickLinksWidget(_Widget):
+    type: Literal["quick_links"]
+    items: list[QuickLink] = Field(min_length=1, max_length=12)
+
+
+class SystemDiagramWidget(_Widget):
+    """A cooling-tower picture with make-up, blowdown and side-stream values and a list of
+    chemistry measurement points."""
+
+    type: Literal["system_diagram"]
+    makeup: Key | None = None
+    blowdown: Key | None = None
+    sidestream: Key | None = None
+    chemistry: Keys = Field(default_factory=list, max_length=8)
 
 
 class AlertListWidget(_Widget):
@@ -227,6 +308,10 @@ Widget = Annotated[
     | ValueTilesWidget
     | TrendChartWidget
     | PredictedProblemsWidget
+    | RecommendedActionsWidget
+    | KpiCardsWidget
+    | QuickLinksWidget
+    | SystemDiagramWidget
     | AlertListWidget
     | InputsSummaryWidget
     | TextNoteWidget,
