@@ -10,8 +10,8 @@ import { formatValue } from '../format'
 const SERIES_COLOURS = ['#1f6feb', '#f08c00', '#2f9e44', '#7048e8']
 
 const W = 360
-const H = 180
-const TOP = 12
+const H = 100 // compact: four charts sit side by side
+const TOP = 10
 const BOTTOM = 24
 const MAX_POINTS = 120 // more points are averaged into buckets so lines stay smooth
 
@@ -61,7 +61,7 @@ function scaleFor(values: number[]): Scale {
   const pad = (hi - lo) * 0.08
   lo -= pad
   hi += pad
-  const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * i) / 3)
+  const ticks = [0, 1, 2].map((i) => lo + ((hi - lo) * i) / 2)
   return { y: (v) => TOP + (1 - (v - lo) / (hi - lo)) * (H - TOP - BOTTOM), ticks }
 }
 
