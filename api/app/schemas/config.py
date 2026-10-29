@@ -195,25 +195,11 @@ class InputGroupWidget(_Widget):
     params: Keys | None = None
     # On/off inputs (1 = on, 0 = off) drawn as switches instead of number boxes.
     switches: Keys | None = None
-    # Interlocks: in each group at most one switch may be on. Turning one on turns the others
-    # in its group off in the same save (e.g. duty/standby pumps).
-    exclusive: list[Keys] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def needs_group_or_params(self) -> "InputGroupWidget":
         if not self.group and not self.params:
             raise ValueError("input_group needs either 'group' or 'params'.")
-        return self
-
-    @model_validator(mode="after")
-    def exclusive_groups_are_switches(self) -> "InputGroupWidget":
-        switches = set(self.switches or [])
-        for group in self.exclusive or []:
-            if len(set(group)) < 2:
-                raise ValueError("Each 'exclusive' group needs at least two different switches.")
-            missing = [k for k in group if k not in switches]
-            if missing:
-                raise ValueError(f"'exclusive' keys must also be in 'switches': {missing}.")
         return self
 
 
