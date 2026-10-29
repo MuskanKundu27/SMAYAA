@@ -84,9 +84,14 @@ function KpiCardView({ card, benefit }: { card: KpiCard; benefit: boolean }) {
       <div className="kpi-card__foot">
         {fromLimits && <span>{limitsText(tile.limits, tile.unit)}</span>}
         {target && <span>{target}</span>}
-        {!fromLimits && !target && card.caption && <span>{card.caption}</span>}
-        <DeltaText card={card} />
+        {!fromLimits && !target && card.caption && card.delta === null && <span>{card.caption}</span>}
       </div>
+      {card.delta !== null && (
+        <div className="kpi-card__foot">
+          {card.caption && <span>{card.caption}</span>}
+          <DeltaText card={card} />
+        </div>
+      )}
     </div>
   )
 }
@@ -179,7 +184,7 @@ function FlowBadge({
   tile: Tile | undefined
   x: number
   y: number
-  tone: 'makeup' | 'blowdown' | 'side'
+  tone: 'makeup' | 'recycled' | 'evaporation' | 'blowdown' | 'side'
 }) {
   if (!tile) return null
   const text = tile.insufficient_data ? 'n/a' : `${value(tile)} ${tile.unit}`
@@ -197,8 +202,9 @@ function FlowBadge({
   )
 }
 
-/** A cooling tower with make-up in, blowdown out and the side-stream filter loop, plus the
- *  chemistry measurement points. Values come from the widget's parameters. */
+/** A cooling tower with make-up in, blowdown out and the side-stream filter loop, plus a list
+ *  of measurement points. Values come from the widget's parameters; recycled water and
+ *  evaporation are drawn only when the widget names them. */
 export function SystemDiagramWidget({ widget }: WidgetProps) {
   const named = widget.named ?? {}
   const points = widget.tiles ?? []
@@ -262,19 +268,27 @@ export function SystemDiagramWidget({ widget }: WidgetProps) {
           <path className="diagram__pipe diagram__pipe--side" d="M300 252 V292 H262" markerEnd="url(#dg-arrow)" />
           <path className="diagram__pipe diagram__pipe--side" d="M190 292 H214" />
           <path className="diagram__pipe diagram__pipe--side" d="M190 292 Q174 292 174 276 V256" markerEnd="url(#dg-arrow)" />
+          {named.recycled && (
+            <path className="diagram__pipe diagram__pipe--recycled" d="M28 244 H160" markerEnd="url(#dg-arrow)" />
+          )}
+          {named.evaporation && (
+            <path className="diagram__pipe diagram__pipe--evaporation" d="M338 40 Q352 28 362 30" markerEnd="url(#dg-arrow)" />
+          )}
 
           {/* side-stream filter vessel */}
           <rect className="diagram__filter" x={214} y={274} width={48} height={40} rx={12} />
           <path className="diagram__filter-media" d="M220 290 H256 M220 298 H256" />
 
           <FlowBadge tile={named.makeup} x={8} y={128} tone="makeup" />
+          <FlowBadge tile={named.recycled} x={8} y={254} tone="recycled" />
+          <FlowBadge tile={named.evaporation} x={368} y={6} tone="evaporation" />
           <FlowBadge tile={named.blowdown} x={396} y={160} tone="blowdown" />
           <FlowBadge tile={named.sidestream} x={20} y={268} tone="side" />
         </svg>
 
         {points.length > 0 && (
           <div className="diagram__points">
-            <h3 className="diagram__points-title">Chemistry measurement points</h3>
+            <h3 className="diagram__points-title">{widget.text || 'Chemistry measurement points'}</h3>
             <ul>
               {points.map((t) => (
                 <li key={t.key}>

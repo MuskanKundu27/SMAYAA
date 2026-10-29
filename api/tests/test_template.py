@@ -165,10 +165,12 @@ def test_new_companies_start_with_the_template(client: TestClient, owner_db: Ses
     rules = client.get(f"/api/v1/companies/{company_id}/rules", headers=headers).json()
 
     assert len(params) == len(T.parameters)
-    assert [m["key"] for m in modules] == ["water_chemistry", "filter", "thermal", "coc"]
+    assert [m["key"] for m in modules] == [
+        "water_chemistry", "filter", "thermal", "coc", "water_balance",
+    ]  # fmt: skip
     assert all(m["warnings"] == [] for m in modules)
     assert [r["code"] for r in rules] == [r.code for r in T.rules]
-    assert len(rules) == 22  # FLT-P01..P07, TH-P01..P06 and COC-P01..P09
+    assert len(rules) == 24  # FLT-P01..P07, TH-P01..P06, COC-P01..P09, WB-P01..P02
 
 
 def test_applying_the_template_again_adds_nothing(client: TestClient, owner_db: Session) -> None:

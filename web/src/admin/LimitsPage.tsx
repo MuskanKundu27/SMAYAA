@@ -27,6 +27,10 @@ const SETTING_LABELS: Record<string, string> = {
   baseline_makeup: 'Baseline make-up water before optimisation (m³/h)',
   water_cost: 'Make-up water cost (₹ per m³)',
   chem_target: 'Chemical dosing target (L/h)',
+  design_blowdown: 'Design blowdown (m³/h) – used for expected make-up',
+  design_other_loss: 'Design backwash / other loss (m³/h)',
+  design_storage_change: 'Design storage change (m³/h)',
+  chemical_cost: 'Chemical cost (₹ per m³ of make-up)',
 }
 
 export function LimitsPage() {

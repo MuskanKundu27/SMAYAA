@@ -162,12 +162,13 @@ def _widget_content(
             type=kind, title=title, links=[QuickLink(**i) for i in widget.get("items") or []]
         )
     if kind == "system_diagram":
-        roles = ("makeup", "blowdown", "sidestream")
+        roles = ("makeup", "recycled", "evaporation", "blowdown", "sidestream")
         return WidgetView(
             type=kind,
             title=title,
             named={role: state.tile(widget[role]) for role in roles if widget.get(role)},
             tiles=[state.tile(k) for k in widget.get("chemistry") or []],
+            text=widget.get("points_title") or None,
         )
     if kind == "alert_list":
         only_modules = set(widget.get("modules") or [])

@@ -35,6 +35,7 @@ from app.services.plant_state import BASELINE_SETTING
 
 SWITCHES = {"clean": 0.0, "valve": 0.0, "sspump": 1.0, "bdvalve": 1.0}
 CLEAN_EVERY_HOURS = 36  # one backwash about every day and a half
+DRIFT = 0.2  # m³/h, the template's default drift loss
 
 
 def _wave(hours: float, period: float, phase: float = 0.0) -> float:
@@ -89,7 +90,8 @@ def generate_inputs(
     if has("tin", "tout"):
         values["tout"] = min(float(values["tout"] or 0), float(values["tin"] or 0) * 0.5)
 
-    # Water balance: make-up = evaporation + blowdown + drift; conductivity = CoC x make-up EC.
+    # Water balance: make-up + recycled = evaporation + blowdown + drift + other loss + storage
+    # change (with a small unaccounted part); conductivity = CoC x make-up EC.
     if has("flow", "ts", "tr", "bdflow", "muflow"):
         mean_t = (float(values["ts"] or 0) + float(values["tr"] or 0)) / 2
         heat = (
@@ -98,9 +100,16 @@ def generate_inputs(
             * (float(values["tr"] or 0) - float(values["ts"] or 0))
         )
         evaporation = heat * 3600 / ((2501 - 2.361 * mean_t) * 1000)
-        values["muflow"] = evaporation + float(values["bdflow"] or 0) + 0.2
+        bd = float(values["bdflow"] or 0)
+        other = float(values.get("otherloss") or 0)
+        recycled = float(values.get("rwflow") or 0)
+        if "storage" in values:
+            values["storage"] = 0.2 * _wave(hours, 24)  # basin level drifts a little each day
+        storage = float(values.get("storage") or 0)
+        losses = evaporation + bd + DRIFT + other + storage
+        values["muflow"] = max(0.0, losses * (1 + 0.01 * rng.gauss(0, 1)) - recycled)
         if has("mucond", "cond"):
-            coc = float(values["muflow"] or 0) / (float(values["bdflow"] or 0) + 0.2)
+            coc = (float(values["muflow"] or 0) + recycled) / (bd + DRIFT + other)
             values["cond"] = float(values["mucond"] or 0) * coc * (1 + 0.005 * rng.gauss(0, 1))
 
     return {

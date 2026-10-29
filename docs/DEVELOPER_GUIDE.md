@@ -320,7 +320,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
 - **Deactivation:** `PATCH {"is_active": false}`. Refused with **409** while an active formula or rule references the parameter; `details` lists them (`parameter 'appr'`, `rule 'TH-P02'`). Nothing is ever hard-deleted.
 - **Rules:** `condition_expr` and `probability_expr` are parsed with the rule helpers; references must be active parameters. Each rule also has a **`priority`** (`high` / `medium` / `low`: the severity in the problems table and the priority in recommended actions), a **`benefit_text`** (expected benefit of the action) and an optional **`eta_expr`**: hours until the problem is expected, e.g. `(condsp * 1.1 - cond) / rate('cond', 6)`. ETA result 0 = now; a negative result or no result = no estimate; an empty string removes it. `eta_expr` is validated like the other expressions and changing it bumps `rule.version`. `POST /rules/test` evaluates a rule on given input values (calculated values are derived, default limits used) and returns `eta_hours` when an `eta_expr` is sent.
 - **Formula test:** `POST /formulas/test` evaluates a formula on sample values (or given `values`) without saving.
-- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart` (optional `ranges`: time-range buttons in hours, e.g. `[6, 24, 168, 720]`; `combine: true` draws all series in one chart, first on the left axis), `predicted_problems` (optional `style: "table"`: severity, probability and ETA columns), `recommended_actions` (`rules`: action, priority, expected benefit of matched rules), `kpi_cards` (`items` of `{param, target, status_from, caption, delta, delta_good, range_caption}`; `target` = `"limits"` for the good range or a parameter key for "≤ its value"; `style: "benefit"` for the benefit cards; without limits the card gets status `na` and, for `target: "limits"`, the caption "No target set". The view also returns the cards' `tiles`, like `value_tiles`. With limits, a KPI card looks like a parameter tile: status pill, range bar and "Good … · Warning …"), `system_diagram` (`makeup`, `blowdown`, `sidestream` keys + `chemistry` list), `quick_links` (`items` of `{label, target}`, target `limits`, `operator-profiles` or `module:<key>`), `alert_list`, `inputs_summary`, `text_note`. **Every widget** may set `width`: `full` (default), `half`, `third` or `quarter` (narrow screens always use the full width). Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
+- **Modules:** `layout = {"widgets": [...]}` validated against the widget types in `schemas/config.py`: `input_group` (needs `group` or `params`; optional `switches` = on/off keys drawn as switches), `value_tiles` (optional `only_calculated: true` skips listed parameters that are currently measured), `trend_chart` (optional `ranges`: time-range buttons in hours, e.g. `[6, 24, 168, 720]`; `combine: true` draws all series in one chart, first on the left axis), `predicted_problems` (optional `style: "table"`: severity, probability and ETA columns), `recommended_actions` (`rules`: action, priority, expected benefit of matched rules), `kpi_cards` (`items` of `{param, target, status_from, caption, delta, delta_good, range_caption}`; `target` = `"limits"` for the good range or a parameter key for "≤ its value"; `style: "benefit"` for the benefit cards; without limits the card gets status `na` and, for `target: "limits"`, the caption "No target set". The view also returns the cards' `tiles`, like `value_tiles`. With limits, a KPI card looks like a parameter tile: status pill, range bar and "Good … · Warning …"), `system_diagram` (`makeup`, `recycled`, `evaporation`, `blowdown`, `sidestream` keys; recycled and evaporation are drawn only when given; `chemistry` list with heading `points_title`), `quick_links` (`items` of `{label, target}`, target `limits`, `operator-profiles` or `module:<key>`), `alert_list`, `inputs_summary`, `text_note`. **Every widget** may set `width`: `full` (default), `half`, `third` or `quarter` (narrow screens always use the full width). Unknown types are rejected (422). References to missing or inactive parameters/rules are **allowed**, and returned as `warnings` (the UI will show "insufficient data"). **Adding a widget type = a new Pydantic model in that union + a frontend component.**
 - **Treatments:** one per parameter + direction (`high`/`low`), with `needs_review` (true for template text).
 - **Audit:** every create/update writes `audit_log` (`parameter.*`, `rule.*`, `module.*`, `treatment.upsert`, `template.apply`).
 
@@ -358,7 +358,30 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
       - P09 chemical overdosing
     - Module `coc`, laid out like the SMAYA_AI_CT design: KPI cards, system diagram, customer benefits, four trend charts (four per row) with 6H / 24H / 7D / 30D, problems table (issue, severity, probability), recommended actions, quick actions.
     - **KPI targets come only from the plant's limits** (owner decision): every card uses `"target": "limits"`. A card whose parameter has no limits shows "No target set" and no status colour, until the manager sets a range on the Limits page.
-  - **Rules (13 + 9):** FLT-P01..P07 and TH-P01..P06 as named in the note, plus COC-P01..P09. Every rule has a priority and an expected-benefit text (FLT/TH priorities follow the Cause & Effect Matrix where it has them; conditions and probabilities unchanged). Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
+  - **Water Balance (added 2026-10-29, from the workbook's "Water Balance", "Cooling Tower", "Energy & Cost" and "Dashboard" sheets; the plant is assumed to reuse water):**
+    - Inputs (group `water`): recycled water flow, backwash / other loss, storage change (+ = filling). Make-up and blowdown come from CoC & Blowdown. Recycled, other loss and storage count as 0 when not entered.
+    - Calculated (group `water`):
+      - `totalin` = make-up + recycled
+      - `explained` = evaporation + blowdown + drift + other loss + storage change
+      - `unacc` = total in − explained
+      - `wberr` = unaccounted ÷ total in × 100, limits −15 / −5 / 5 / 15 (workbook: good within ±5 %; Diagnostic Engine: critical above 15 %)
+      - `expmu` = evaporation + design blowdown + drift + design other loss + design storage change − recycled
+      - `mudev` = (make-up − expected) ÷ expected × 100, limits −15 / −5 / 5 / 15
+      - `evappct` and `recshare`: evaporation and recycled water as % of water in
+      - `discharge` = blowdown + other loss
+      - `wbhealth` = max(0, 100 − 3 × \|wberr\|) (Dashboard "Water Efficiency"), limits 50 / 70 / 100 / 100
+      - `excesswater` = max(0, make-up − expected) × 24
+      - `excesscost` = excess × (water cost + chemical cost)
+      - `muvsyday`, `rwvsyday`, `bdvsyday`, `evapvsyday` = change over 24 h ÷ the value 24 h ago × 100 (the design's "vs yesterday")
+    - **CoC by flow changed** to the workbook's improved form including recycled water: (make-up + recycled) ÷ (blowdown + drift + other loss).
+    - Settings: `design_blowdown` 3.3, `design_other_loss` 0.3, `design_storage_change` 0 (m³/h), `chemical_cost` 18 ₹/m³ of make-up.
+    - Rules:
+      - WB-P01 unaccounted water / possible leak: `off('wberr')`, priority high (Diagnostic Engine rule 2, Matrix WB-01)
+      - WB-P02 make-up differs from expected: `off('mudev')`, priority medium
+      - The module also shows COC-P04 (valve leakage) and COC-P06 (CoC mismatch).
+    - Module `water_balance`: the same dashboard layout as the others. The diagram shows recycled water and evaporation; benefits are water saved, less fresh water, recycled share, water efficiency score and avoidable cost.
+    - Sample values: make-up 15, recycled 3, other loss 0.3 m³/h. These close the balance (error 1.4 %) and keep both CoC methods within 8 % of each other.
+  - **Rules (13 + 9 + 2):** FLT-P01..P07 and TH-P01..P06 as named in the note, plus COC-P01..P09 and WB-P01..P02. Every rule has a priority and an expected-benefit text (FLT/TH priorities follow the Cause & Effect Matrix where it has them; conditions and probabilities unchanged). Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
   - **Modules (4; CoC & Blowdown described above).** Side-Stream Filtration and Thermal Efficiency use the same dashboard layout as CoC & Blowdown:
     - KPI cards with targets from the plant's limits
     - four trend charts with time ranges
@@ -420,7 +443,7 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
   | `predicted_problems` (table) | as above + `style`; each problem has `priority`, `benefit`, `eta_hours` |
   | `recommended_actions` | matched problems for the listed rules (action, priority, benefit) |
   | `kpi_cards` | `cards`: tile, caption, `target_min`/`target_max`, status (from `status_from` or the parameter), `delta`, `delta_good`, `in_range`; `style` |
-  | `system_diagram` | `named` tiles (`makeup`, `blowdown`, `sidestream`) + chemistry `tiles` |
+  | `system_diagram` | `named` tiles (`makeup`, `recycled`, `evaporation`, `blowdown`, `sidestream`) + list `tiles`; `text` = list heading |
   | `quick_links` | `links` (label, target); the web app hides links the user can't open |
   | `text_note` | the text |
 
@@ -652,7 +675,7 @@ cd /opt/smayaa/app/api && sudo -u smayaa /opt/smayaa/venv/bin/python -m app.scri
   - each value drifts smoothly (a slowly wandering offset, not random jumps every hour) around a daily wave
   - daily wet-bulb swing
   - filter ΔP rising between backwashes every 36 h
-  - make-up = evaporation + blowdown + drift
+  - make-up + recycled = evaporation + blowdown + drift + other loss + storage change (with about 1 % unaccounted noise)
   - conductivity = make-up conductivity × CoC
 - Calculated values use the company's current formulas, including time functions over the generated series.
 - One `readings.import` entry is written to the audit log. The command asks you to type YES unless `--yes` is given.

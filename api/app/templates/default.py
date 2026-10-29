@@ -95,9 +95,13 @@ PARAMETERS = [
     P("orp", "ORP", "mV", "chemistry", 650, precision=0),
     # Make-up, blowdown and dosing (Instrument Index: AIT-EC-MU, FT-MU, FT-BD, CHEM-FB)
     P("mucond", "Make-up conductivity", "µS/cm", "coc", 480, precision=0),
-    P("muflow", "Make-up flow", "m³/h", "coc", 17.5, precision=1),
+    P("muflow", "Make-up flow", "m³/h", "coc", 15.0, precision=1),
     P("bdflow", "Blowdown flow", "m³/h", "coc", 3.4),
     P("chemdose", "Chemical dosing flow", "L/h", "coc", 2.35),
+    # Water balance (engineering workbook "Plant Inputs" / "Water Balance"; the plant reuses water)
+    P("rwflow", "Recycled water flow", "m³/h", "water", 3.0, precision=1),
+    P("otherloss", "Backwash / other loss", "m³/h", "water", 0.3),
+    P("storage", "Storage change (+ = filling)", "m³/h", "water", 0.0),
     # Thermal (typed in or from the plant system)
     P("ts", "Supply temperature", "°C", "thermal", 31, (20, 25, 32, 35), precision=1),
     P("tr", "Return temperature", "°C", "thermal", 39, (30, 35, 42, 45), precision=1),
@@ -182,8 +186,11 @@ PARAMETERS = [
     # No default limits: the manager sets the plant's CoC range on the Limits page.
     P("coc", "Cycles of concentration", "", "coc", formula="cond / mucond", precision=1),
     # Flow-based CoC includes drift (KPI-17: "flow CoC should include evaporation/drift").
-    P("cocflow", "CoC by flow", "", "coc", formula="muflow / (bdflow + setting('drift_loss'))",
-      precision=1),
+    # Workbook "CoC by Flow - improved": water in / (blowdown + drift + other concentrated
+    # losses); water in includes recycled water.
+    P("cocflow", "CoC by flow", "", "coc",
+      formula="(muflow + coalesce(rwflow, 0))"
+              " / (bdflow + setting('drift_loss') + coalesce(otherloss, 0))", precision=1),
     P("cocmis", "CoC mismatch (conductivity vs flow)", "%", "coc", limits=(0, 0, 10, 20),
       formula="abs(coc - cocflow) / coc * 100", precision=1),
     # Water-side evaporation: heat load / latent heat (h_fg = 2501 - 2.361 x mean water temp).
@@ -214,6 +221,46 @@ PARAMETERS = [
       formula="watersaved * setting('water_cost')", precision=0),
     P("chemvt", "Chemical use vs target", "%", "coc",
       formula="(chemdose - setting('chem_target')) / setting('chem_target') * 100", precision=0),
+    # Calculated: water balance (engineering workbook "Water Balance", "Cooling Tower",
+    # "Energy & Cost" and "Dashboard" sheets). Missing recycled / other loss / storage count as 0.
+    P("totalin", "Total water in", "m³/h", "water",
+      formula="muflow + coalesce(rwflow, 0)", precision=1),
+    P("explained", "Explained losses", "m³/h", "water",
+      formula="evap + bdflow + setting('drift_loss') + coalesce(otherloss, 0)"
+              " + coalesce(storage, 0)"),
+    P("unacc", "Unaccounted water", "m³/h", "water", formula="totalin - explained"),
+    # Workbook: good within ±5 %; Diagnostic Engine: warning above 5 %, critical above 15 %.
+    P("wberr", "Water balance error", "%", "water", limits=(-15, -5, 5, 15),
+      formula="unacc / totalin * 100", precision=1),
+    P("expmu", "Expected make-up", "m³/h", "water",
+      formula="evap + setting('design_blowdown') + setting('drift_loss')"
+              " + setting('design_other_loss') + setting('design_storage_change')"
+              " - coalesce(rwflow, 0)", precision=1),
+    P("mudev", "Make-up deviation", "%", "water", limits=(-15, -5, 5, 15),
+      formula="(muflow - expmu) / expmu * 100", precision=1),
+    P("evappct", "Evaporation share of water in", "%", "water",
+      formula="evap / totalin * 100", precision=0),
+    P("recshare", "Recycled share of water in", "%", "water",
+      formula="coalesce(rwflow, 0) / totalin * 100", precision=0),
+    P("discharge", "Discharge (blowdown + other loss)", "m³/h", "water",
+      formula="bdflow + coalesce(otherloss, 0)"),
+    # Dashboard "Water Efficiency" score = 100 - 3 x |water balance error|.
+    P("wbhealth", "Water efficiency score", "%", "water", limits=(50, 70, 100, 100),
+      formula="max(0, 100 - 3 * abs(wberr))", precision=0),
+    # Energy & Cost: excess make-up (above expected) x water / chemical cost, here per 24 h.
+    P("excesswater", "Excess make-up water (24 h)", "m³", "water",
+      formula="max(0, muflow - expmu) * 24", precision=0),
+    P("excesscost", "Excess water + chemical cost (24 h)", "₹", "water",
+      formula="excesswater * (setting('water_cost') + setting('chemical_cost'))", precision=0),
+    # Change since about 24 h ago (the design's "vs yesterday").
+    P("muvsyday", "Make-up vs yesterday", "%", "water",
+      formula="change('muflow', 24) / (muflow - change('muflow', 24)) * 100", precision=0),
+    P("rwvsyday", "Recycled water vs yesterday", "%", "water",
+      formula="change('rwflow', 24) / (rwflow - change('rwflow', 24)) * 100", precision=0),
+    P("bdvsyday", "Blowdown vs yesterday", "%", "water",
+      formula="change('bdflow', 24) / (bdflow - change('bdflow', 24)) * 100", precision=0),
+    P("evapvsyday", "Evaporation vs yesterday", "%", "water",
+      formula="change('evap', 24) / (evap - change('evap', 24)) * 100", precision=0),
 ]  # fmt: skip
 
 
@@ -296,6 +343,18 @@ TREATMENTS = [
     T("bddev", "high", "Blowdown above the rate needed for the target CoC.",
       "Reduce blowdown; check controller setpoint and for a passing valve.",
       "Change setpoints in small steps and watch conductivity."),
+    T("wberr", "high", "Leak, overflow, drain, storage change or meter error.",
+      "Check basin overflow, drains, leaks and flowmeter calibration.",
+      "Persistent error should be investigated; confirm meters before changing setpoints."),
+    T("wberr", "low", "More losses than water in: meter error or an unrecorded water source.",
+      "Check make-up and recycled-water meters and the evaporation estimate.",
+      "Do not trust savings figures until the balance closes."),
+    T("mudev", "high", "Make-up above expected: water loss, storage change or meter error.",
+      "Investigate water loss, storage and the make-up meter; review blowdown.",
+      "Excess make-up raises water and chemical cost."),
+    T("mudev", "low", "Make-up below expected: blowdown too low or a meter error.",
+      "Check blowdown and conductivity; verify the make-up meter.",
+      "Low make-up with rising conductivity means scaling risk."),
     T("bddev", "low", "Blowdown below the rate needed for the target CoC.",
       "Increase blowdown; check the blowdown valve and line for blockage.",
       "Conductivity and scaling risk will rise if blowdown stays low."),
@@ -447,12 +506,25 @@ RULES = [
       "min(95, 30 + min(40, chemvt - 15) + sev('orp'))",
       "Reduce the dose towards target and validate the ORP analyser.", ("coc",),
       priority="medium", benefit="Reduce chemical cost"),
+    # --- Water balance (workbook Diagnostic Engine rule 2; Cause & Effect Matrix WB-01) ---
+    R("WB-P01", "Unaccounted water / possible leak",
+      "off('wberr')",
+      "min(95, 35 + sev('wberr') + if_else(abs(wberr) > 15, 15, 0))",
+      "Check basin overflow, drains, leaks and flowmeter calibration.", ("water_balance",),
+      priority="high", benefit="Stop water loss · reliable water balance"),
+    R("WB-P02", "Make-up differs from expected",
+      "off('mudev')",
+      "min(95, 30 + sev('mudev'))",
+      "Investigate water loss, storage or the make-up meter; review blowdown.",
+      ("water_balance",), priority="medium", benefit="Lower make-up water and chemical cost"),
 ]  # fmt: skip
 
 
 FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
+# Water balance: its own rules plus the CoC rules about leaks and meter mismatch.
+WATER_RULES = ["WB-P01", "WB-P02", "COC-P04", "COC-P06"]
 # Trend charts: 6H / 24H / 7D / 30D buttons, four charts side by side.
 TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
 
@@ -471,6 +543,7 @@ MODULES = [
             {"type": "input_group", "title": "Thermal", "group": "thermal"},
             {"type": "input_group", "title": "Side-stream filter", "group": "filter"},
             {"type": "input_group", "title": "Make-up, blowdown & dosing", "group": "coc"},
+            {"type": "input_group", "title": "Water balance", "group": "water"},
             {
                 "type": "input_group",
                 "title": "Indication",
@@ -612,13 +685,67 @@ MODULES = [
             },
         ],
     ),
+    TemplateModule(
+        "water_balance",
+        "Water Balance",
+        [
+            {"type": "kpi_cards", "items": [
+                {"param": "muflow", "target": "limits", "caption": "vs yesterday",
+                 "delta": "muvsyday", "delta_good": "down"},
+                {"param": "rwflow", "target": "limits", "caption": "vs yesterday",
+                 "delta": "rwvsyday", "delta_good": "up"},
+                {"param": "wberr", "target": "limits"},
+                {"param": "bdflow", "target": "limits", "caption": "vs yesterday",
+                 "delta": "bdvsyday", "delta_good": "down"},
+                {"param": "evap", "target": "limits", "caption": "vs yesterday",
+                 "delta": "evapvsyday", "delta_good": "down"},
+                {"param": "watersaved", "caption": "vs baseline"},
+            ]},
+            {
+                "type": "system_diagram",
+                "title": "Water Balance Overview",
+                "width": "half",
+                "makeup": "muflow",
+                "recycled": "rwflow",
+                "evaporation": "evap",
+                "blowdown": "bdflow",
+                "chemistry": ["totalin", "explained", "unacc", "discharge", "storage"],
+                "points_title": "Water flows",
+            },
+            {"type": "kpi_cards", "title": "Customer Benefits Today", "style": "benefit",
+             "width": "half", "items": [
+                {"param": "watersaved", "caption": "vs baseline"},
+                {"param": "mulower", "caption": "less fresh water"},
+                {"param": "recshare", "caption": "of water in is recycled"},
+                {"param": "wbhealth", "range_caption": True},
+                {"param": "excesscost", "caption": "avoidable today"},
+            ]},
+            {"type": "trend_chart", "title": "Make-up & Recycled", "params": ["muflow", "rwflow"],
+             "combine": True, **TRENDS},
+            {"type": "trend_chart", "title": "Evaporation & Blowdown", "params": ["evap", "bdflow"],
+             "combine": True, **TRENDS},
+            {"type": "trend_chart", "title": "Water Balance Error", "params": ["wberr"], **TRENDS},
+            {"type": "trend_chart", "title": "Make-up vs Expected", "params": ["muflow", "expmu"],
+             "combine": True, **TRENDS},
+            {"type": "predicted_problems", "title": "Predicted Problems", "rules": WATER_RULES,
+             "style": "table", "width": "third"},
+            {"type": "recommended_actions", "title": "Recommended Actions", "rules": WATER_RULES,
+             "width": "third"},
+            {"type": "quick_links", "title": "Quick Actions", "width": "third", "items": [
+                {"label": "Review water readings", "target": "module:water_chemistry"},
+                {"label": "Adjust water limits", "target": "limits"},
+                {"label": "Check CoC & blowdown", "target": "module:coc"},
+                {"label": "Check side-stream filter", "target": "module:filter"},
+            ]},
+        ],
+    ),
 ]  # fmt: skip
 
 
 DEFAULT_TEMPLATE = Template(
     key="default",
     name="SMAYAA standard (Input Parameters, Side-Stream Filtration, Thermal Efficiency,"
-    " CoC & Blowdown)",
+    " CoC & Blowdown, Water Balance)",
     parameters=PARAMETERS,
     treatments=TREATMENTS,
     rules=RULES,
@@ -640,6 +767,13 @@ DEFAULT_TEMPLATE = Template(
         "baseline_makeup": 21.5,
         "water_cost": 45.0,
         "chem_target": 2.6,
+        # Water balance (workbook "Plant Inputs" design / target column): expected make-up uses
+        # design blowdown, design other loss and design storage change; chemical cost per m³ of
+        # make-up for the excess-cost estimate.
+        "design_blowdown": 3.3,
+        "design_other_loss": 0.3,
+        "design_storage_change": 0.0,
+        "chemical_cost": 18.0,
     },
 )
 

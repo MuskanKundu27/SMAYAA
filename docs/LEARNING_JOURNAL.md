@@ -655,6 +655,29 @@ Lesson: when two numbers on screen look like targets but come from different pla
 
 **Then:** the KPI cards now look like the parameter tiles: a status pill, a coloured range bar and "Good … · Warning …". The Filtration and Thermal modules moved to the same dashboard layout, and every predicted problem now says how important it is and what fixing it gains you. No formulas changed: only the layout data in the template did, which shows the value of building screens from configuration.
 
+## Entry 20 – The Water Balance module (2026-10-29)
+
+**What we did**
+- Added a **Water Balance** module that checks whether all the water going into the cooling tower can be accounted for.
+- New inputs: recycled water flow, backwash / other loss and storage change (whether the basin is filling or emptying).
+- New calculations, all taken from the engineering workbook:
+  - water in = fresh make-up + recycled water
+  - explained losses = evaporation + blowdown + drift + other losses + storage change
+  - unaccounted water = water in − explained losses, also as a %
+  - expected make-up, worked out from design values, and how far the real make-up is from it
+  - a water efficiency score
+  - the cost of excess water and chemicals today
+- Two new predicted problems: "unaccounted water / possible leak" and "make-up differs from expected".
+- The tower picture can now also show recycled water and evaporation.
+
+**Why**
+Water that "disappears" usually means a leak, an overflow or a broken meter. A water balance finds it because inputs must equal outputs. Recycled water also enters the tower, so it has to be counted on the "in" side, and we corrected the flow-based cycles-of-concentration formula to include it.
+
+**What to learn**
+- A balance (in = out) is a simple but powerful check. When the two sides disagree, something is wrong with the plant or with a sensor.
+- Values that are often not measured (storage change, other losses) can count as 0 when missing, using `coalesce(value, 0)`, so the rest of the module still works.
+- Sample data must follow the same physics as the formulas, or the system will report false problems.
+
 ---
 
 ## Glossary
@@ -757,3 +780,6 @@ Lesson: when two numbers on screen look like targets but come from different pla
 | **ORP** | Oxidation-reduction potential (mV): shows how strong the disinfecting chemicals in the water are. |
 | **ETA** | Estimated time until something is expected to happen. |
 | **Widget** | A reusable screen building block (a card, a chart, a table) placed on a page by configuration. |
+| **Water balance** | Comparing all water going in with all water going out; the difference is "unaccounted" water. |
+| **Recycled water** | Treated water reused in the cooling tower instead of fresh make-up water. |
+| **Unaccounted water** | Water that enters but can't be explained by known losses: leaks, overflow or meter errors. |

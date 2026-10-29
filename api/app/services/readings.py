@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.auth.principal import Principal
 from app.core.errors import PermissionDeniedError, ValidationFailedError
 from app.engine.calculation import calculate, history_hours
-from app.models import OperatorProfile, Parameter, Plant, Reading, User
+from app.models import Module, OperatorProfile, Parameter, Plant, Reading, User
 from app.schemas.common import PageParams
 from app.schemas.readings import Person, Preview, ReadingOut, ReadingSummary
 from app.services.config_common import active_parameters, parsed_formulas
@@ -64,6 +64,43 @@ def _check_changes(params: dict[str, Parameter], changes: dict[str, float | None
         raise ValidationFailedError("Some values cannot be saved.", problems)
 
 
+ON = 0.5  # switch values >= 0.5 count as on (1 = on, 0 = off)
+
+
+def interlock_groups(db: Session, company_id: uuid.UUID) -> list[list[str]]:
+    """'Only one on' switch groups configured on the company's active input widgets."""
+    layouts = db.scalars(
+        select(Module.layout).where(Module.company_id == company_id, Module.is_active.is_(True))
+    )
+    groups: list[list[str]] = []
+    for layout in layouts:
+        for widget in layout.get("widgets", []):
+            if widget.get("type") == "input_group":
+                groups.extend(list(g) for g in widget.get("exclusive") or [])
+    return groups
+
+
+def apply_interlocks(
+    changes: dict[str, float | None], groups: list[list[str]], params: dict[str, Parameter]
+) -> dict[str, float | None]:
+    """Turning a switch on turns the other switches in its group off (same save).
+    Turning two switches of one group on in the same save is refused."""
+    result = dict(changes)
+    for group in groups:
+        turned_on = [k for k in group if (v := changes.get(k)) is not None and v >= ON]
+        if len(turned_on) > 1:
+            raise ValidationFailedError(
+                "Only one of these can be on at a time.",
+                [{"field": k, "message": "Only one in this group can be on."} for k in turned_on],
+            )
+        if turned_on:
+            for other in group:
+                p = params.get(other)
+                if other != turned_on[0] and p is not None and p.kind == "input":
+                    result[other] = 0.0
+    return result
+
+
 def _merged_inputs(
     db: Session, plant: Plant, params: dict[str, Parameter], changes: dict[str, float | None]
 ) -> tuple[dict[str, float | None], Reading | None]:
@@ -84,6 +121,7 @@ def save_reading(
         raise PermissionDeniedError("You are not allowed to enter readings for this plant.")
     params = active_parameters(db, plant.company_id)
     _check_changes(params, changes)
+    changes = apply_interlocks(changes, interlock_groups(db, plant.company_id), params)
     merged, latest = _merged_inputs(db, plant, params, changes)
 
     previous = latest.input_values if latest else {}
@@ -122,6 +160,7 @@ def preview(
         raise PermissionDeniedError("You are not allowed to enter readings for this plant.")
     params = active_parameters(db, plant.company_id)
     _check_changes(params, changes)
+    changes = apply_interlocks(changes, interlock_groups(db, plant.company_id), params)
     merged, _ = _merged_inputs(db, plant, params, changes)
     state = build_state(db, plant, merged)
     return Preview(

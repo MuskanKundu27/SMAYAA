@@ -59,14 +59,15 @@ def test_sample_values_give_the_expected_coc_kpis() -> None:
     assert v["evap"] == pytest.approx(13.850, abs=1e-3)
     assert v["bdreq"] == pytest.approx(13.850 / 4 - 0.2, abs=1e-3)  # E / (CoC - 1) - drift
     assert v["bddev"] == pytest.approx((3.4 - 3.2625) / 3.2625 * 100, abs=0.1)
-    assert v["cocflow"] == pytest.approx(17.5 / 3.6)  # make-up / (blowdown + drift)
-    assert v["cocmis"] == pytest.approx(abs(5.0 - 17.5 / 3.6) / 5.0 * 100)
+    # (make-up 15 + recycled 3) / (blowdown 3.4 + drift 0.2 + other loss 0.3)
+    assert v["cocflow"] == pytest.approx(18 / 3.9)
+    assert v["cocmis"] == pytest.approx(abs(5.0 - 18 / 3.9) / 5.0 * 100)
     assert v["condsp"] == pytest.approx(2400.0)  # make-up EC x target CoC
     assert v["condvsp"] == pytest.approx(0.0)
     assert v["bdlower"] == pytest.approx((4.7 - 3.4) / 4.7 * 100)
-    assert v["mulower"] == pytest.approx((21.5 - 17.5) / 21.5 * 100)
-    assert v["watersaved"] == pytest.approx(96.0)  # (21.5 - 17.5) x 24 h, no history yet
-    assert v["costsaved"] == pytest.approx(96.0 * 45)
+    assert v["mulower"] == pytest.approx((21.5 - 15) / 21.5 * 100)
+    assert v["watersaved"] == pytest.approx(156.0)  # (21.5 - 15) x 24 h, no history yet
+    assert v["costsaved"] == pytest.approx(156.0 * 45)
     assert v["chemvt"] == pytest.approx((2.35 - 2.6) / 2.6 * 100)
 
 
@@ -114,7 +115,7 @@ def test_coc_module_screen_has_every_piece(client: TestClient, acme: Tenant) -> 
     assert (cards["cond"]["target_min"], cards["cond"]["target_max"]) == (1200.0, 2800.0)
     assert cards["cond"]["status"] == "good"
     assert cards["coc"]["target_min"] is None and cards["coc"]["status"] == "na"
-    assert cards["costsaved"]["delta"] == pytest.approx(18.6, abs=0.1)  # % less make-up
+    assert cards["costsaved"]["delta"] == pytest.approx(30.2, abs=0.1)  # % less make-up
     assert cards["costsaved"]["caption"] == "vs baseline"
 
     benefits = widget(view, "kpi_cards", "Customer Benefits Today")
@@ -123,7 +124,7 @@ def test_coc_module_screen_has_every_piece(client: TestClient, acme: Tenant) -> 
     assert in_range["coc"] is None  # no target set yet
 
     diagram = widget(view, "system_diagram")
-    assert diagram["named"]["makeup"]["value"] == 17.5
+    assert diagram["named"]["makeup"]["value"] == 15.0
     assert diagram["named"]["blowdown"]["value"] == 3.4
     assert [t["key"] for t in diagram["tiles"]] == ["cond", "ph", "orp", "ts"]
 

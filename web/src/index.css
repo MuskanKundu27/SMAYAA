@@ -1220,6 +1220,16 @@ h2 {
   stroke: #f08c00;
 }
 
+.diagram__pipe--recycled {
+  stroke: #0ca678;
+}
+
+.diagram__pipe--evaporation {
+  stroke: #8da6c9;
+  stroke-width: 3;
+  stroke-dasharray: 5 4;
+}
+
 .diagram__filter {
   fill: url(#dg-filter);
   stroke: #d9480f;
@@ -1248,6 +1258,14 @@ h2 {
 
 .badge--side .badge__bar {
   fill: #f08c00;
+}
+
+.badge--recycled .badge__bar {
+  fill: #0ca678;
+}
+
+.badge--evaporation .badge__bar {
+  fill: #8da6c9;
 }
 
 .badge__title {

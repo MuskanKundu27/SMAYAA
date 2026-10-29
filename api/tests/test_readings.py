@@ -298,6 +298,7 @@ def test_modules_list_comes_from_configuration(client: TestClient, acme: Tenant)
         "Side-Stream Filtration",
         "Thermal Efficiency",
         "CoC & Blowdown",
+        "Water Balance",
     ]
 
 
@@ -309,8 +310,8 @@ def test_water_chemistry_shows_editable_inputs_and_calculated_values(
     view = module(client, acme, "water_chemistry")
 
     assert [w["title"] for w in view["widgets"]] == [
-        "Chemistry", "Thermal", "Side-stream filter", "Make-up, blowdown & dosing", "Indication",
-        "Calculated values",
+        "Chemistry", "Thermal", "Side-stream filter", "Make-up, blowdown & dosing",
+        "Water balance", "Indication", "Calculated values",
     ]  # fmt: skip
     indication = next(w for w in view["widgets"] if w["title"] == "Indication")
     assert [t["key"] for t in indication["tiles"]] == ["clean", "valve", "sspump", "bdvalve", "bwt"]
