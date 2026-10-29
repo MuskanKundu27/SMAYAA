@@ -990,6 +990,13 @@ h2 {
   background: var(--card);
 }
 
+.kpi-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
 .kpi-card--benefit {
   text-align: center;
   background: var(--blue-soft);

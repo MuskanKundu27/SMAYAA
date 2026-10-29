@@ -653,6 +653,8 @@ The design asks for many screen pieces we did not have. We could have built one 
 
 Lesson: when two numbers on screen look like targets but come from different places, users lose trust. Show one source of truth.
 
+**Then:** the KPI cards now look like the parameter tiles: a status pill, a coloured range bar and "Good … · Warning …". The Filtration and Thermal modules moved to the same dashboard layout, and every predicted problem now says how important it is and what fixing it gains you. No formulas changed: only the layout data in the template did, which shows the value of building screens from configuration.
+
 ---
 
 ## Glossary

@@ -325,66 +325,79 @@ RULES = [
     R("FLT-P01", "Normal loading / time to clean",
       f"(off('dp') or coalesce(dprate, 0) > 0) and not off('rem')"
       f" and count_off({CHEM_FILTER}) == 0",
-      FILTER_PROBABILITY, "Schedule the next backwash (see time to clean).", ("filter",)),
+      FILTER_PROBABILITY, "Schedule the next backwash (see time to clean).", ("filter",),
+      priority="medium", benefit="Keep the filter available · plan cleaning"),
     R("FLT-P02", "Breakthrough / poor removal",
       "off('rem') or (coalesce(rate('tout', 24), 0) > 0.5 and coalesce(rate('rem', 24), 0) < 0)",
       FILTER_PROBABILITY, "Inspect screen or media for damage, channeling or bypass.",
-      ("filter",)),
+      ("filter",),
+      priority="high", benefit="Restore filtered-water quality"),
     R("FLT-P03", "Abnormally fast loading",
       f"count_off({CHEM_FILTER}) > 0"
       " or (coalesce(dprate, 0) > 0.2 and coalesce(rate('tin', 24), 0) > 0)"
       " or coalesce(oil, 0) > 5",
       FILTER_PROBABILITY, "Backwash earlier; look for a contamination event or high solids.",
-      ("filter",)),
+      ("filter",),
+      priority="medium", benefit="Protect the tower from solids · fewer cleanings"),
     R("FLT-P04", "Low flow / hydraulic restriction",
       "(off('dp') and rate('ssflow', 24) < 0) or coalesce(sspump, 1) < 0.5",
       "min(95, 30 + sev('dp'))", "Check strainer, pump and valves on the side-stream line.",
-      ("filter",)),
+      ("filter",),
+      priority="medium", benefit="Restore side-stream flow"),
     R("FLT-P05", "Ineffective cleaning",
       "dprec < 0.15 or after_event('dp', 'clean') > setting('clean_dp_baseline') + 0.2",
       "min(95, 40 + sev('dp') + min(20, 4 * coalesce(oil, 0)))",
-      "Check backwash sequence and filter internals; check for oil fouling.", ("filter",)),
+      "Check backwash sequence and filter internals; check for oil fouling.", ("filter",),
+      priority="medium", benefit="Recover ΔP · extend filter life"),
     R("FLT-P06", "Excessive cleaning water",
       "(events('clean', 168) > 7 or bw > 1.5 * setting('min_water_per_clean'))"
       " and not off('rem')",
       "min(95, 20 + 5 * coalesce(events('clean', 168), 0))",
-      "Review the backwash trigger and sequence; save water.", ("filter",)),
+      "Review the backwash trigger and sequence; save water.", ("filter",),
+      priority="medium", benefit="Save backwash water"),
     R("FLT-P07", "Low ΔP with high outlet turbidity",
       "(dp < 0.2 and (off('rem') or tout > 5)) or coalesce(valve, 0) >= 0.5",
       "min(95, 40 + sev('rem'))", "Check for an open bypass, channeling or a damaged element.",
-      ("filter",)),
+      ("filter",),
+      priority="high", benefit="Stop bypass · restore removal"),
     # --- Thermal efficiency ---
     R("TH-P01", "Thermal performance deterioration",
       f"(off('resid') or {RESID_TREND} > 0.3) and {STABLE_CONDITIONS}"
       f" and count_off({CHEM_THERMAL}) == 0 and not off('dp')",
       f"min(95, 25 + sev('resid') + sev('appr') + min(30, 60 * max(0, {RESID_TREND})))",
-      "Check fan, airflow and process load.", ("thermal",)),
+      "Check fan, airflow and process load.", ("thermal",),
+      priority="high", benefit="Recover cooling capacity"),
     R("TH-P02", "Fouling / solids deposition",
       f"(off('resid') or off('appr') or count_off({CHEM_THERMAL}) > 0 or {RESID_TREND} > 0)"
       f" and (count_off({CHEM_THERMAL}) > 0 or off('dp')"
       " or coalesce(rate('tssin', 24), 0) > 0 or coalesce(dprate, 0) > 0.1)",
       THERMAL_PROBABILITY, "Increase side-stream filtration; inspect fill and nozzles.",
-      ("thermal", "filter")),
+      ("thermal", "filter"),
+      priority="high", benefit="Restore heat transfer · prevent fouling"),
     R("TH-P03", "Airflow / fan underperformance",
       "off('resid') and (rate('fan', 24) > 0 or rate('fanspd', 24) > 0)"
       " and coalesce(fanresp, 0) > -0.01",
       "min(95, 30 + sev('resid') + sev('fan'))",
       "Inspect fan, belt/gearbox, louvers; check for recirculation or a blocked air path.",
-      ("thermal",)),
+      ("thermal",),
+      priority="high", benefit="Recover airflow · save fan energy"),
     R("TH-P04", "Hydraulic restriction / low circulation",
       "rate('flow', 24) < 0 and rate('range', 24) > 0"
       " and (abs(coalesce(rate('pumpp', 24), 0)) > 0 or off('flow'))",
       "min(95, 30 + sev('flow') + sev('range'))",
-      "Check strainers, valves and pumps; look for a process restriction.", ("thermal",)),
+      "Check strainers, valves and pumps; look for a process restriction.", ("thermal",),
+      priority="high", benefit="Restore circulation and cooling"),
     R("TH-P05", "Excess circulation / bypass / sensor mismatch",
       "rate('range', 24) < 0 and abs(coalesce(change('load', 24), 0)) < 5",
       "min(95, 25 + sev('range'))",
       "Check for an open bypass, excess pump speed, or temperature/flow sensor errors.",
-      ("thermal",)),
+      ("thermal",),
+      priority="medium", benefit="Save pump energy · fix sensors"),
     R("TH-P06", "Thermal energy inefficiency",
       "rate('sfe', 24) > 0 and coalesce(rate('heat', 24), 0) <= 0",
       "min(95, 30 + sev('fan'))",
-      "Look for airflow restriction, hydraulic inefficiency or fouling.", ("thermal",)),
+      "Look for airflow restriction, hydraulic inefficiency or fouling.", ("thermal",),
+      priority="medium", benefit="Reduce fan energy"),
     # --- CoC & Blowdown (Cause & Effect Matrix COC-01..03, WB-03, WB-04, SC-01, BIO-01/02) ---
     R("COC-P01", "Excessive blowdown",
       "high('bddev')",
@@ -440,8 +453,14 @@ RULES = [
 FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06", "FLT-P07"]
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
-# 6H / 24H / 7D / 30D buttons; four charts side by side.
-COC_TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
+# Trend charts: 6H / 24H / 7D / 30D buttons, four charts side by side.
+TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
+
+
+def cards(keys: list[str]) -> list[dict[str, Any]]:
+    """KPI cards whose targets are the plant's limits."""
+    return [{"param": key, "target": "limits"} for key in keys]
+
 
 MODULES = [
     TemplateModule(
@@ -470,48 +489,64 @@ MODULES = [
         "filter",
         "Side-Stream Filtration",
         [
-            {
-                "type": "value_tiles",
-                "title": "Filtration KPIs",
-                "params": ["dp", "rem", "dprate", "solids"],
-            },
-            {
-                "type": "value_tiles",
-                "title": "Cleaning",
-                "params": ["cleancount", "cleanint", "dprec", "bw", "treated"],
-            },
-            {"type": "trend_chart", "title": "Filter ΔP (7 days)", "params": ["dp"], "hours": 168},
+            {"type": "kpi_cards", "title": "Filtration KPIs",
+             "items": cards(["dp", "rem", "dprate", "solids"])},
+            {"type": "kpi_cards", "title": "Cleaning",
+             "items": cards(["cleancount", "cleanint", "dprec", "bw", "treated"])},
+            {"type": "trend_chart", "title": "Filter ΔP", "params": ["dp"], **TRENDS},
+            {"type": "trend_chart", "title": "Removal Efficiency", "params": ["rem"], **TRENDS},
+            {"type": "trend_chart", "title": "Turbidity In & Out", "params": ["tin", "tout"],
+             "combine": True, **TRENDS},
+            {"type": "trend_chart", "title": "Side-Stream Flow", "params": ["ssflow"], **TRENDS},
+            {"type": "predicted_problems", "title": "Predicted Problems", "rules": FILTER_RULES,
+             "style": "table", "width": "half"},
+            {"type": "recommended_actions", "title": "Recommended Actions", "rules": FILTER_RULES,
+             "width": "half"},
             {
                 "type": "inputs_summary",
-                "title": "Inputs used",
+                "title": "Inputs Used",
+                "width": "half",
                 "params": ["pin", "pout", "ssflow", "tin", "tout", "tssin", "tssout", "clean",
                            "bwf", "bwt", "oil", "valve", "sspump"],
             },
-            {"type": "predicted_problems", "title": "Predicted problems", "rules": FILTER_RULES},
+            {"type": "quick_links", "title": "Quick Actions", "width": "half", "items": [
+                {"label": "Review filter readings", "target": "module:water_chemistry"},
+                {"label": "Adjust filter limits", "target": "limits"},
+                {"label": "Check thermal performance", "target": "module:thermal"},
+                {"label": "Check CoC & blowdown", "target": "module:coc"},
+            ]},
         ],
     ),
     TemplateModule(
         "thermal",
         "Thermal Efficiency",
         [
-            {
-                "type": "value_tiles",
-                "title": "Thermal KPIs",
-                "params": ["appr", "expappr", "resid", "range", "heat", "fanresp", "sfe"],
-            },
-            {
-                "type": "trend_chart",
-                "title": "Approach and residual (7 days)",
-                "params": ["appr", "resid"],
-                "hours": 168,
-            },
+            {"type": "kpi_cards", "title": "Thermal KPIs",
+             "items": cards(["appr", "expappr", "resid", "range", "heat", "fanresp", "sfe"])},
+            {"type": "trend_chart", "title": "Approach & Residual", "params": ["appr", "resid"],
+             "combine": True, **TRENDS},
+            {"type": "trend_chart", "title": "Supply & Return Temperature", "params": ["ts", "tr"],
+             "combine": True, **TRENDS},
+            {"type": "trend_chart", "title": "Heat Load", "params": ["heat"], **TRENDS},
+            {"type": "trend_chart", "title": "Fan Speed & Power", "params": ["fanspd", "fan"],
+             "combine": True, **TRENDS},
+            {"type": "predicted_problems", "title": "Predicted Problems", "rules": THERMAL_RULES,
+             "style": "table", "width": "half"},
+            {"type": "recommended_actions", "title": "Recommended Actions", "rules": THERMAL_RULES,
+             "width": "half"},
             {
                 "type": "inputs_summary",
-                "title": "Inputs used",
+                "title": "Inputs Used",
+                "width": "half",
                 "params": ["ts", "tr", "wbt", "flow", "fan", "fanspd", "pumpspd", "pumppow",
                            "pumpp", "load", "tin", "tssin"],
             },
-            {"type": "predicted_problems", "title": "Predicted problems", "rules": THERMAL_RULES},
+            {"type": "quick_links", "title": "Quick Actions", "width": "half", "items": [
+                {"label": "Review thermal readings", "target": "module:water_chemistry"},
+                {"label": "Adjust thermal limits", "target": "limits"},
+                {"label": "Check side-stream filter", "target": "module:filter"},
+                {"label": "Check CoC & blowdown", "target": "module:coc"},
+            ]},
         ],
     ),
     TemplateModule(
@@ -553,13 +588,13 @@ MODULES = [
                     {"param": "mulower", "caption": "vs baseline"},
                 ],
             },
-            {"type": "trend_chart", "title": "CoC Trend", "params": ["coc"], **COC_TRENDS},
+            {"type": "trend_chart", "title": "CoC Trend", "params": ["coc"], **TRENDS},
             {"type": "trend_chart", "title": "Blowdown Trend", "params": ["bdflow", "bdreq"],
-             "combine": True, **COC_TRENDS},
+             "combine": True, **TRENDS},
             {"type": "trend_chart", "title": "Conductivity & pH", "params": ["cond", "ph"],
-             "combine": True, **COC_TRENDS},
+             "combine": True, **TRENDS},
             {"type": "trend_chart", "title": "ORP & Chemical Use", "params": ["orp", "chemdose"],
-             "combine": True, **COC_TRENDS},
+             "combine": True, **TRENDS},
             {"type": "predicted_problems", "title": "Predicted Problems", "rules": COC_RULES,
              "style": "table", "width": "third"},
             {"type": "recommended_actions", "title": "Recommended Actions", "rules": COC_RULES,

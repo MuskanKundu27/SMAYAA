@@ -5,7 +5,9 @@ import { useNavigate } from 'react-router'
 
 import type { KpiCard, QuickLink, Tile } from '../api/types'
 import { useAuth } from '../auth/useAuth'
-import { formatDelta, formatValue, STATUS_LABELS } from '../format'
+import { RangeBar } from '../components/RangeBar'
+import { StatusPill } from '../components/StatusPill'
+import { formatDelta, formatValue, limitsText } from '../format'
 import { usePlantData } from '../plant/usePlantData'
 import { PriorityBadge, Section } from './widgets'
 import type { WidgetProps } from './widgets'
@@ -40,7 +42,6 @@ function KpiCardView({ card, benefit }: { card: KpiCard; benefit: boolean }) {
       </div>
     )
   }
-  const target = targetText(card)
   const rangeCaption =
     card.in_range !== null
       ? card.in_range
@@ -49,23 +50,42 @@ function KpiCardView({ card, benefit }: { card: KpiCard; benefit: boolean }) {
       : tile.value === null
         ? 'No data'
         : 'No target set'
+
+  if (benefit) {
+    return (
+      <div className={`kpi-card kpi-card--${card.status} kpi-card--benefit`}>
+        <div className="kpi-card__label">{tile.label}</div>
+        <div className="kpi-card__value">
+          {value(tile)}
+          {tile.unit && <span className="kpi-card__unit">{tile.unit}</span>}
+        </div>
+        <div className="kpi-card__foot">
+          <span>{card.caption || rangeCaption}</span>
+          <DeltaText card={card} />
+        </div>
+      </div>
+    )
+  }
+
+  // KPI style: like the parameter tiles — status, range bar and the good / warning ranges.
+  const fromLimits = tile.limits !== null && card.target_min !== null
+  const target = fromLimits ? null : targetText(card)
   return (
-    <div className={`kpi-card kpi-card--${card.status}${benefit ? ' kpi-card--benefit' : ''}`}>
-      <div className="kpi-card__label">{tile.label}</div>
+    <div className={`kpi-card kpi-card--${card.status}`}>
+      <div className="kpi-card__head">
+        <span className="kpi-card__label">{tile.label}</span>
+        {card.status !== 'na' && <StatusPill status={card.status} />}
+      </div>
       <div className="kpi-card__value">
         {value(tile)}
         {tile.unit && <span className="kpi-card__unit">{tile.unit}</span>}
       </div>
+      {fromLimits && tile.limits && <RangeBar value={tile.value} limits={tile.limits} status={card.status} />}
       <div className="kpi-card__foot">
+        {fromLimits && <span>{limitsText(tile.limits, tile.unit)}</span>}
         {target && <span>{target}</span>}
-        {!target && card.caption && <span>{card.caption}</span>}
-        {!target && !card.caption && benefit && <span>{rangeCaption}</span>}
+        {!fromLimits && !target && card.caption && <span>{card.caption}</span>}
         <DeltaText card={card} />
-        {!benefit && card.status !== 'na' && (
-          <span className={`kpi-card__status kpi-card__status--${card.status}`} title={STATUS_LABELS[card.status]}>
-            {card.status === 'good' ? '✓' : '!'}
-          </span>
-        )}
       </div>
     </div>
   )

@@ -149,11 +149,13 @@ def _widget_content(
             type=kind, title=title, problems=[p for p in rule_results.matched if p.code in codes]
         )
     if kind == "kpi_cards":
+        kpi_cards = [_kpi_card(item, state) for item in widget.get("items") or []]
         return WidgetView(
             type=kind,
             title=title,
             style=widget.get("style", "kpi"),
-            cards=[_kpi_card(item, state) for item in widget.get("items") or []],
+            cards=kpi_cards,
+            tiles=[c.tile for c in kpi_cards],  # same tiles as value_tiles, for generic readers
         )
     if kind == "quick_links":
         return WidgetView(

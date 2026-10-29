@@ -205,3 +205,18 @@ def test_update_to_latest_template_refreshes_template_items(
     assert update["updated"] == {"parameters": 0, "rules": 1, "modules": 1}
     rules = {r["code"]: r for r in client.get(f"{base}/rules", headers=headers).json()}
     assert rules["FLT-P02"]["title"] == "Breakthrough / poor removal"
+
+
+def test_every_module_uses_the_dashboard_layout_and_rules_explain_their_benefit() -> None:
+    for module in T.modules:
+        if module.key == "water_chemistry":
+            continue  # the data-entry page
+        types = [w["type"] for w in module.widgets]
+        assert {"kpi_cards", "trend_chart", "recommended_actions"} <= set(types), module.key
+        problems = next(w for w in module.widgets if w["type"] == "predicted_problems")
+        assert problems["style"] == "table", module.key
+        # KPI targets are the plant's limits, never fixed numbers.
+        for widget in module.widgets:
+            if widget["type"] == "kpi_cards" and widget.get("style") != "benefit":
+                assert all(i.get("target") in ("limits", None) for i in widget["items"])
+    assert all(r.benefit for r in T.rules), [r.code for r in T.rules if not r.benefit]
