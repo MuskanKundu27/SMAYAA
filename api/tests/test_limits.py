@@ -244,17 +244,18 @@ def test_plant_settings_come_from_the_template_and_feed_formulas(
 
     client.post(
         f"/api/v1/plants/{acme.plant_a.id}/readings",
-        json={"values": {"tr": 39, "ts": 31, "wbt": 26, "flow": 1000, "load": 100, "fanspd": 100}},
+        json={"values": {"tr": 39, "ts": 31, "flow": 1000, "bdflow": 3.4, "otherloss": 0,
+                         "storage": 0}},
         headers=headers,
-    )
-    thermal = f"/api/v1/plants/{acme.plant_a.id}/modules/thermal"
+    )  # fmt: skip
+    water = f"/api/v1/plants/{acme.plant_a.id}/modules/water_balance"
 
-    def expected_approach() -> float:
-        view = client.get(thermal, headers=headers).json()
+    def explained_losses() -> float:
+        view = client.get(water, headers=headers).json()
         tiles = {t["key"]: t for w in view["widgets"] for t in (w.get("tiles") or [])}
-        return float(tiles["expappr"]["value"])
+        return float(tiles["explained"]["value"])
 
-    assert expected_approach() == pytest.approx(4.0)  # design conditions: the clean baseline
-    client.put(settings_url(acme), json={"values": {"design_flow": 500}}, headers=headers)
-    # Flow is now twice the plant's design flow: the setting feeds the formula.
-    assert expected_approach() == pytest.approx(4.0 * 2**0.2)
+    before = explained_losses()  # evaporation + blowdown + drift 0.2
+    client.put(settings_url(acme), json={"values": {"drift_loss": 1.2}}, headers=headers)
+    # The plant's drift setting feeds the formula: one more m³/h of drift.
+    assert explained_losses() == pytest.approx(before + 1.0)

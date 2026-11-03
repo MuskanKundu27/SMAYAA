@@ -71,7 +71,7 @@ def test_sample_values_give_the_expected_kpis() -> None:
     assert results["range"] == 8.0
     assert results["appr"] == 5.0
     assert results["heat"] == pytest.approx(9304.0)
-    assert results["resid"] == 1.0
+    assert results["resid"] == 0.5  # approach 5 - expected approach 4.5 (an input)
     assert results["dp"] == pytest.approx(0.6)
     assert results["rem"] == pytest.approx(83.333, rel=1e-3)
     assert results["bw"] == 3.0
@@ -80,7 +80,7 @@ def test_sample_values_give_the_expected_kpis() -> None:
 
 
 def test_fan_power_formula_for_when_it_is_calculated() -> None:
-    assert set(MEASURED_FORMULAS) == {"fan"}
+    assert set(MEASURED_FORMULAS) == {"fan", "expappr"}
     results = calculate(SAMPLES, {"fan": MEASURED_FORMULAS["fan"]}, BASELINE, None, SETTINGS)
 
     # sqrt(3) x 415 V x 115 A x 0.85 / 1000
@@ -127,8 +127,7 @@ def test_trend_kpis_use_history() -> None:
     assert values["cleanint"] is None  # one cleaning: no interval between two yet
     assert values["dprec"] == pytest.approx(0.0)  # sample ΔP is the same before and after
     assert values["treated"] == pytest.approx(50 * 48)  # 50 m³/h for 48 h, one cleaning
-    assert values["expappr"] == BASELINE  # load and fan at 100 %
-    assert values["resid"] == 1.0
+    assert values["resid"] == 0.5
 
 
 def test_module_layouts_are_valid_and_reference_existing_items() -> None:
@@ -170,7 +169,7 @@ def test_new_companies_start_with_the_template(client: TestClient, owner_db: Ses
     ]  # fmt: skip
     assert all(m["warnings"] == [] for m in modules)
     assert [r["code"] for r in rules] == [r.code for r in T.rules]
-    assert len(rules) == 24  # FLT-P01..P07, TH-P01..P06, COC-P01..P09, WB-P01..P02
+    assert len(rules) == 28  # FLT-P01..P07, TH-P01..P06, COC-P01..P09, WB-P01..P06
 
 
 def test_applying_the_template_again_adds_nothing(client: TestClient, owner_db: Session) -> None:
@@ -222,3 +221,10 @@ def test_every_module_uses_the_dashboard_layout_and_rules_explain_their_benefit(
             if widget["type"] == "kpi_cards" and widget.get("style") != "benefit":
                 assert all(i.get("target") in ("limits", None) for i in widget["items"])
     assert all(r.benefit for r in T.rules), [r.code for r in T.rules if not r.benefit]
+
+
+def test_expected_approach_is_an_input_but_keeps_the_demo_model() -> None:
+    expappr = next(p for p in T.parameters if p.key == "expappr")
+    assert expappr.kind == "input" and expappr.formula
+    model = calculate(SAMPLES, {"expappr": MEASURED_FORMULAS["expappr"]}, BASELINE, None, SETTINGS)
+    assert model["expappr"] == BASELINE  # design conditions: the clean baseline approach

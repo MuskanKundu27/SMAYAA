@@ -4,7 +4,8 @@ charts and trend KPIs have history. Works in every environment, including produc
     cd api && .venv/bin/python -m app.scripts.sample_readings --company "Demo Co" --plant "Unit 1"
 
 Options: --days 7 (how far back), --every 1 (hours between readings), --user <username> (who the
-readings are saved by; default: the plant's manager), --yes (no confirmation prompt).
+readings are saved by; default: the plant's manager), --fill-gap (start after the plant's newest
+reading, so a second run continues the history instead of mixing with it), --yes (no prompt).
 
 Values start from the plant's latest reading (or the parameters' sample values) and move like a
 real plant: daily wet-bulb swing, filter ΔP rising between backwashes, make-up and blowdown flows
@@ -24,7 +25,7 @@ from typing import Any
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from app.engine.calculation import calculate, history_hours
+from app.engine.calculation import calculate, history_hours, parse_formula
 from app.engine.history import History
 from app.models import Company, Parameter, Plant, Reading, RoleAssignment, User
 from app.scripts.seed_dev import owner_url
@@ -124,6 +125,7 @@ def fill(
     days: float,
     every: float,
     now: datetime | None = None,
+    fill_gap: bool = False,
 ) -> int:
     """Add the readings (does not commit). Returns how many were added."""
     now = now or datetime.now(UTC)
@@ -138,12 +140,22 @@ def fill(
         base.update({k: v for k, v in latest.input_values.items() if v is not None and k in base})
 
     formulas = parsed_formulas(params.values())
+    # Measured parameters that keep a formula (e.g. expected approach): when the plant has no
+    # value to start from, the formula gives a realistic one.
+    measured = {
+        k: parse_formula(p.formula)
+        for k, p in params.items()
+        if p.kind == "input" and p.formula and base.get(k) is None
+    }
     lookback = history_hours(formulas.values())
     baseline = plant_setting(db, plant, BASELINE_SETTING)
     settings = plant_settings_values(db, plant)
     rng = random.Random(str(plant.id))  # noqa: S311  # sample values, not security
     start = now - timedelta(days=days)
-    steps = int(days * 24 / every)
+    if fill_gap and latest is not None:
+        # Continue from the newest reading (smoothly, from its values) up to now.
+        start = max(start, latest.recorded_at + timedelta(hours=every))
+    steps = max(0, int((now - start).total_seconds() / 3600 / every))
     points: list[tuple[datetime, dict[str, Any]]] = []
     drift: dict[str, float] = {}
     for i in range(steps):
@@ -151,6 +163,10 @@ def fill(
         inputs = generate_inputs(base, params, i * every, rng, every, drift)
         recent = [p for p in points if p[0] >= t - timedelta(hours=lookback)] if lookback else []
         history = History(now=t, points=recent) if lookback else None
+        for key, value in calculate(inputs, measured, baseline, history, settings).items():
+            if value is not None:
+                noisy = value * (1 + 0.01 * rng.gauss(0, 1))
+                inputs[key] = round(noisy, params[key].precision)
         calculated = calculate(inputs, formulas, baseline, history, settings)
         points.append((t, {**inputs, **calculated}))
         db.add(
@@ -216,6 +232,9 @@ def main() -> None:
     parser.add_argument("--days", type=float, default=7)
     parser.add_argument("--every", type=float, default=1, help="hours between readings")
     parser.add_argument("--user", help="username the readings are saved by")
+    parser.add_argument(
+        "--fill-gap", action="store_true", help="start after the newest existing reading"
+    )
     parser.add_argument("--yes", action="store_true", help="do not ask for confirmation")
     args = parser.parse_args()
     if not 0 < args.days <= 90 or not 0.25 <= args.every <= 24:
@@ -224,12 +243,12 @@ def main() -> None:
     with Session(create_engine(owner_url())) as db:
         plant = _find_plant(db, args.company, args.plant)
         user = _find_user(db, plant, args.user)
-        count = int(args.days * 24 / args.every)
-        print(f"{count} readings for '{plant.name}', last {args.days:g} days, every "
-              f"{args.every:g} h, saved by {user.full_name} ({user.username}).")  # fmt: skip
+        span = "from its newest reading up to now" if args.fill_gap else "for the whole period"
+        print(f"Readings every {args.every:g} h for '{plant.name}' over the last {args.days:g} "
+              f"days ({span}), saved by {user.full_name} ({user.username}).")  # fmt: skip
         if not args.yes and input("Type YES to continue: ").strip() != "YES":
             sys.exit("Nothing was added.")
-        fill(db, plant, user.id, args.days, args.every)
+        count = fill(db, plant, user.id, args.days, args.every, fill_gap=args.fill_gap)
         db.commit()
     print(f"Added {count} readings.")
 

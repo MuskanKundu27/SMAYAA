@@ -1,13 +1,13 @@
 """The sample-readings command fills a plant with realistic history."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, Reading
+from app.models import AuditLog, Parameter, Reading
 from app.scripts.sample_readings import fill
 from tests.helpers import Tenant, login, make_tenant, with_template
 
@@ -58,3 +58,35 @@ def test_filled_history_shows_in_the_trend_charts(
     chart = next(w for w in view["widgets"] if w["title"] == "Blowdown Trend")
     assert len(chart["series"][0]["points"]) >= 23  # the oldest sits right at the 24 h edge
     assert owner_db.scalar(select(func.count()).select_from(Reading)) == 24
+
+
+def test_fill_gap_continues_after_the_newest_reading(owner_db: Session, acme: Tenant) -> None:
+    now = datetime.now(UTC)
+    fill(owner_db, acme.plant_a, acme.manager.id, days=2, every=2, now=now - timedelta(days=1))
+    owner_db.commit()
+
+    added = fill(owner_db, acme.plant_a, acme.manager.id, days=2, every=2, now=now, fill_gap=True)
+    owner_db.commit()
+
+    times = sorted(
+        owner_db.scalars(select(Reading.recorded_at).where(Reading.plant_id == acme.plant_a.id))
+    )
+    assert added == 12  # only the last day, after the newest reading
+    assert times == sorted(set(times))  # no mixed or repeated timestamps
+
+
+def test_a_measured_value_without_a_start_value_comes_from_its_formula(
+    owner_db: Session, acme: Tenant
+) -> None:
+    expappr = owner_db.scalar(
+        select(Parameter).where(Parameter.company_id == acme.company_id, Parameter.key == "expappr")
+    )
+    assert expappr is not None
+    expappr.sample_value = None  # e.g. a company that switched it from calculated to measured
+    owner_db.commit()
+
+    fill(owner_db, acme.plant_a, acme.manager.id, days=1, every=2)
+    owner_db.commit()
+
+    values = owner_db.scalars(select(Reading.input_values)).all()
+    assert all(3 < v["expappr"] < 6 for v in values)  # around the clean baseline of 4 °C

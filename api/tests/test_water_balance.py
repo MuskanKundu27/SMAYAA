@@ -75,3 +75,18 @@ def test_water_balance_screen_and_leak_prediction(client: TestClient, acme: Tena
     assert leak["priority"] == "high"
     cards = {c["tile"]["key"]: c for c in leaking["widgets"][0]["cards"]}
     assert cards["wberr"]["status"] == "bad"
+
+
+def test_overflow_drift_and_low_cycles_are_predicted(client: TestClient, acme: Tenant) -> None:
+    view(client, acme, SAMPLE_INPUTS)
+
+    def matched(values: dict[str, Any]) -> set[str]:
+        screen = view(client, acme, values)
+        problems = next(w for w in screen["widgets"] if w["type"] == "predicted_problems")
+        return {p["code"] for p in problems["problems"]}
+
+    assert {"WB-P03", "WB-P04", "WB-P05", "WB-P06"}.isdisjoint(matched({"storage": 0.0}))
+    assert "WB-P03" in matched({"storage": 0.8})  # basin filling: overflow / passing valve
+    # About 1.2 m³/h unexplained loss with a steady basin: drift or carry-over.
+    assert "WB-P04" in matched({"storage": 0.0, "muflow": 16.0})
+    assert "WB-P05" in matched({"bdflow": 7.0, "muflow": 18.6})  # blowdown > 30 % of water in

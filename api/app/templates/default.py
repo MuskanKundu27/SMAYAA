@@ -150,7 +150,9 @@ PARAMETERS = [
     # Demo model until a calibrated one exists: the clean baseline scaled for duty (process load
     # proxy if available, else heat load vs design), fan speed, flow vs design and wet-bulb vs
     # design. Design values are plant settings.
-    P("expappr", "Expected approach (demo model)", "°C", "thermal",
+    # Expected approach is entered (from the OEM curve or a healthy-tower model) by default; the
+    # demo model below is kept as its formula, so it can be switched to calculated per company.
+    P("expappr", "Expected approach", "°C", "thermal", 4.5, measured=True,
       formula="base * coalesce(load / 100, heat / setting('design_heat_load')) ** 0.7"
               " * (100 / max(coalesce(fanspd, 100), 20)) ** 0.5"
               " * (flow / setting('design_flow')) ** 0.2"
@@ -517,6 +519,31 @@ RULES = [
       "min(95, 30 + sev('mudev'))",
       "Investigate water loss, storage or the make-up meter; review blowdown.",
       ("water_balance",), priority="medium", benefit="Lower make-up water and chemical cost"),
+    # Common causes of unexplained water loss (manufacturer troubleshooting guides): overflow
+    # from a high float / passing make-up valve, damaged drift eliminators, aggressive blowdown.
+    R("WB-P03", "Basin overflow / make-up valve passing",
+      "coalesce(avg('storage', 6), storage, 0) > 0.3",
+      "min(95, 40 + min(40, 50 * coalesce(storage, 0)))",
+      "Check the make-up float / level setting, the make-up valve and the overflow drain.",
+      ("water_balance",), priority="high", benefit="Stop overflow losses"),
+    R("WB-P04", "Excessive drift / carry-over",
+      "unacc + setting('drift_loss') > 3 * setting('drift_loss') and coalesce(storage, 0) <= 0.1"
+      " and not off('cocmis')",
+      "min(95, 30 + sev('wberr'))",
+      "Inspect drift eliminators and the top of the fill for damage or gaps; check for"
+      " splash-out at the louvres.", ("water_balance",), priority="medium",
+      benefit="Cut drift loss · keep chemicals in the tower"),
+    R("WB-P05", "Blowdown share too high (low cycles)",
+      "bdflow / totalin * 100 > 30",
+      "min(95, 30 + sev('coc') + sev('bddev'))",
+      "Check the conductivity controller setpoint and the blowdown valve; raise cycles if the"
+      " chemistry allows.", ("water_balance", "coc"), priority="medium",
+      benefit="Save water and chemicals"),
+    R("WB-P06", "Recycled water supply dropped",
+      "coalesce(rwvsyday, 0) < -30",
+      "min(95, 35 + min(40, -rwvsyday / 2))",
+      "Check the recycled-water source, pumps and treatment; fresh make-up is replacing it.",
+      ("water_balance",), priority="medium", benefit="Keep the fresh-water savings"),
 ]  # fmt: skip
 
 
@@ -524,7 +551,7 @@ FILTER_RULES = ["FLT-P01", "FLT-P02", "FLT-P03", "FLT-P04", "FLT-P05", "FLT-P06"
 THERMAL_RULES = ["TH-P01", "TH-P02", "TH-P03", "TH-P04", "TH-P05", "TH-P06"]
 COC_RULES = [f"COC-P0{i}" for i in range(1, 10)]
 # Water balance: its own rules plus the CoC rules about leaks and meter mismatch.
-WATER_RULES = ["WB-P01", "WB-P02", "COC-P04", "COC-P06"]
+WATER_RULES = ["WB-P01", "WB-P02", "WB-P03", "WB-P04", "WB-P05", "WB-P06", "COC-P04", "COC-P06"]
 # Trend charts: 6H / 24H / 7D / 30D buttons, four charts side by side.
 TRENDS: dict[str, Any] = {"hours": 24, "ranges": [6, 24, 168, 720], "width": "quarter"}
 

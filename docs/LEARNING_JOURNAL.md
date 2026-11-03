@@ -678,6 +678,11 @@ Water that "disappears" usually means a leak, an overflow or a broken meter. A w
 - Values that are often not measured (storage change, other losses) can count as 0 when missing, using `coalesce(value, 0)`, so the rest of the module still works.
 - Sample data must follow the same physics as the formulas, or the system will report false problems.
 
+**Later:**
+- **Expected approach is now typed in (or comes from the PLC)** instead of being worked out by our first-version model. The model is kept and can be switched back on.
+- We added four more water-balance warnings based on manufacturers' troubleshooting guides: basin overflow, drift loss, too much blowdown, and the recycled-water supply dropping.
+- Some predictions said "insufficient data". They compare values with 24 hours ago, so they need readings spread over the last day. The sample-data command can now continue the history from the newest reading up to now (`--fill-gap`).
+
 ---
 
 ## Glossary

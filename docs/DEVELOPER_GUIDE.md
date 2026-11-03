@@ -378,10 +378,16 @@ All under `/companies/{company_id}/...`, permission `config.manage`, platform da
     - Rules:
       - WB-P01 unaccounted water / possible leak: `off('wberr')`, priority high (Diagnostic Engine rule 2, Matrix WB-01)
       - WB-P02 make-up differs from expected: `off('mudev')`, priority medium
+      - From manufacturer troubleshooting guides:
+        - WB-P03 basin overflow / make-up valve passing: storage rising more than 0.3 m³/h over 6 h
+        - WB-P04 excessive drift / carry-over: apparent drift (unaccounted + design drift) above 3 × design drift, basin steady and CoC methods agreeing
+        - WB-P05 blowdown share too high: blowdown above 30 % of water in
+        - WB-P06 recycled water supply dropped: more than 30 % below yesterday
       - The module also shows COC-P04 (valve leakage) and COC-P06 (CoC mismatch).
     - Module `water_balance`: the same dashboard layout as the others. The diagram shows recycled water and evaporation; benefits are water saved, less fresh water, recycled share, water efficiency score and avoidable cost.
     - Sample values: make-up 15, recycled 3, other loss 0.3 m³/h. These close the balance (error 1.4 %) and keep both CoC methods within 8 % of each other.
-  - **Rules (13 + 9 + 2):** FLT-P01..P07 and TH-P01..P06 as named in the note, plus COC-P01..P09 and WB-P01..P02. Every rule has a priority and an expected-benefit text (FLT/TH priorities follow the Cause & Effect Matrix where it has them; conditions and probabilities unchanged). Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
+  - **Rules (13 + 9 + 6):** FLT-P01..P07 and TH-P01..P06 as named in the note, plus COC-P01..P09 and WB-P01..P06.
+  - **Expected approach is measured by default (2026-10-30):** it is entered or comes from the PLC (from an OEM curve or a healthy-tower model). The demo model stays as its formula, so the super admin can switch it back to calculated (Configuration → Parameters → Edit → Source). "Update to latest template" keeps each company's choice, so existing companies switch it themselves. Every rule has a priority and an expected-benefit text (FLT/TH priorities follow the Cause & Effect Matrix where it has them; conditions and probabilities unchanged). Conditions use today's values where possible and trends (with `coalesce(..., 0)` where a missing trend should count as "no change"). Probabilities are demo heuristics.
   - **Modules (4; CoC & Blowdown described above).** Side-Stream Filtration and Thermal Efficiency use the same dashboard layout as CoC & Blowdown:
     - KPI cards with targets from the plant's limits
     - four trend charts with time ranges
@@ -678,6 +684,8 @@ cd /opt/smayaa/app/api && sudo -u smayaa /opt/smayaa/venv/bin/python -m app.scri
   - make-up + recycled = evaporation + blowdown + drift + other loss + storage change (with about 1 % unaccounted noise)
   - conductivity = make-up conductivity × CoC
 - Calculated values use the company's current formulas, including time functions over the generated series.
+- A measured parameter with a formula and no starting value (e.g. expected approach after a company switches it to measured) gets its value from that formula at each step, plus about 1 % noise.
+- `--fill-gap` starts after the plant's newest reading. A second run then continues the history up to now instead of mixing with it, which keeps the lines smooth and makes 24 h trend rules decidable.
 - One `readings.import` entry is written to the audit log. The command asks you to type YES unless `--yes` is given.
 - Readings can't be deleted (database rule), so run it once per plant.
 

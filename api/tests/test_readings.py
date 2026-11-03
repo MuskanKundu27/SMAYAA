@@ -64,7 +64,7 @@ def test_saving_stores_a_new_reading_with_calculated_values(
     reading = response.json()["reading"]
     assert reading["created_by"]["name"] == "Acme-Manager"
     assert reading["calculated_values"]["range"] == 8.0
-    assert reading["calculated_values"]["resid"] == 1.0  # appr 5 - baseline 4
+    assert reading["calculated_values"]["resid"] == 0.5  # appr 5 - expected approach 4.5
     assert reading["formula_versions"]["range"] == 1
     # Every plant setting used is stored with the reading (history stays explainable).
     assert reading["settings_used"]["clean_baseline_approach"] == 4.0
